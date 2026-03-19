@@ -2,37 +2,291 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>BruteBox – MPIN Cracker</title>
+    <title>BruteBox</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1 { text-align: center; color: #333; }
-        .brutebox-logo { font-weight: bold; color: #007bff; }
-        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; cursor: pointer; }
-        button:disabled { background: #ccc; }
-        #log { background: #1e1e1e; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; border-radius: 4px; }
-        .info { margin-top: 20px; }
-        .success { color: green; font-weight: bold; }
-        .fail { color: red; font-weight: bold; }
-        .progress { display: flex; justify-content: space-between; }
+        /* RESET & GLOBAL */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        body {
+            background-color: #0a0e0a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            width: 100%;
+            background: #0f130f;
+            border: 2px solid #1f3a1f;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 0 30px #1f3a1f;
+            color: #a5d6a5;
+        }
+        h1 {
+            text-align: center;
+            color: #00ff00;
+            text-shadow: 0 0 10px #00ff00;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+            word-break: break-word;
+        }
+        .subtitle {
+            text-align: center;
+            color: #7aba7a;
+            margin-bottom: 30px;
+            font-size: 1.2rem;
+            border-bottom: 1px dashed #1f3a1f;
+            padding-bottom: 15px;
+        }
+        .warning {
+            background: #1f2a1f;
+            border-left: 5px solid #00ff00;
+            padding: 15px;
+            margin-bottom: 25px;
+            font-size: 0.95rem;
+            border-radius: 0 8px 8px 0;
+            color: #bada55;
+        }
+        .warning code {
+            background: #2a3a2a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #00ff00;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #7aba7a;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.9rem;
+        }
+        input[type="url"],
+        input[type="text"] {
+            width: 100%;
+            background: #1a1f1a;
+            border: 2px solid #2a4a2a;
+            border-radius: 6px;
+            padding: 14px 16px;
+            color: #00ff00;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+        input[type="url"]:focus,
+        input[type="text"]:focus {
+            border-color: #00ff00;
+            box-shadow: 0 0 15px #2a6f2a;
+        }
+        .checkbox-wrapper {
+            margin: 25px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            background: #1a1f1a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #2a4a2a;
+        }
+        .checkbox-wrapper input[type="checkbox"] {
+            width: 22px;
+            height: 22px;
+            accent-color: #00ff00;
+            transform: translateY(2px);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .checkbox-wrapper label {
+            margin: 0;
+            color: #bada55;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            text-transform: none;
+            letter-spacing: normal;
+            cursor: pointer;
+        }
+        .button-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin: 30px 0 20px;
+        }
+        button {
+            flex: 1 1 200px;
+            background: #1f3a1f;
+            border: 2px solid #2a6f2a;
+            color: #00ff00;
+            font-size: 1.3rem;
+            font-weight: bold;
+            padding: 16px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.2s;
+            box-shadow: 0 0 10px #1f3a1f;
+        }
+        button:hover:not(:disabled) {
+            background: #2a5a2a;
+            border-color: #00ff00;
+            box-shadow: 0 0 20px #00ff00;
+            transform: scale(1.02);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: #3a4a3a;
+            color: #6a8a6a;
+            box-shadow: none;
+        }
+        .stats {
+            background: #0f130f;
+            border: 1px solid #1f3a1f;
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            font-size: 1rem;
+            color: #7aba7a;
+        }
+        .stats span {
+            color: #00ff00;
+            font-weight: bold;
+            background: #1f2a1f;
+            padding: 4px 12px;
+            border-radius: 20px;
+            border: 1px solid #2a4a2a;
+            margin-left: 8px;
+        }
+        .log-container {
+            background: #0f130f;
+            border: 2px solid #1f3a1f;
+            border-radius: 8px;
+            margin-top: 25px;
+            overflow: hidden;
+        }
+        .log-header {
+            background: #1f2a1f;
+            padding: 12px 20px;
+            color: #7aba7a;
+            font-weight: bold;
+            border-bottom: 1px solid #2a4a2a;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        #log {
+            background: #0a0e0a;
+            color: #bada55;
+            padding: 20px;
+            height: 280px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            scroll-behavior: smooth;
+        }
+        #log div {
+            border-bottom: 1px dotted #1f3a1f;
+            padding: 4px 0;
+        }
+        .success { color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00; }
+        .fail { color: #ff5555; font-weight: bold; }
+        .footer-note {
+            text-align: center;
+            margin-top: 20px;
+            color: #3a5a3a;
+            font-size: 0.85rem;
+        }
+        .footer-note a {
+            color: #7aba7a;
+            text-decoration: none;
+        }
+        .footer-note a:hover {
+            color: #00ff00;
+            text-decoration: underline;
+        }
+        /* scrollbar */
+        #log::-webkit-scrollbar {
+            width: 10px;
+        }
+        #log::-webkit-scrollbar-track {
+            background: #1f2a1f;
+        }
+        #log::-webkit-scrollbar-thumb {
+            background: #2a6f2a;
+            border-radius: 5px;
+        }
     </style>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>🔓 <span class="brutebox-logo">BruteBox</span> – MPIN Cracker</h1>
-        <p>Enter the target login URL and username. BruteBox will attempt all 4‑digit PINs.</p>
-        <input type="url" id="url" placeholder="https://example.com/login" value="https://ams.izeeinstitution.in/">
-        <input type="text" id="username" placeholder="Username" value="">
-        <div style="display: flex; gap: 10px;">
-            <button id="startBtn" onclick="start()">▶ Start</button>
-            <button id="stopBtn" onclick="stop()" disabled>⏹ Stop</button>
+        <h1>🔓 BRUTEBOX</h1>
+        <div class="subtitle">ethical pin cracker · 4‑digit attack</div>
+
+        <!-- ETHICAL WARNING -->
+        <div class="warning">
+            ⚡ <strong>WARNING:</strong> This tool is for <u>authorized testing only</u>.  
+            You must own the target system or have explicit written permission.  
+            Unauthorised use is illegal and unethical.  
+            <code>#HackResponsibly</code>
         </div>
-        <div class="info">
-            <p>Attempts: <span id="attempts">0</span> | Current PIN: <span id="current">-</span> | Elapsed: <span id="elapsed">0</span>s | Speed: <span id="speed">0</span>/s</p>
+
+        <!-- INPUT FIELDS -->
+        <div class="input-group">
+            <label>🎯 Target Login URL</label>
+            <input type="url" id="url" placeholder="https://example.com/login" value="https://ams.izeeinstitution.in/">
         </div>
-        <div id="log"></div>
+        <div class="input-group">
+            <label>👤 Username</label>
+            <input type="text" id="username" placeholder="username" value="">
+        </div>
+
+        <!-- TERMS CHECKBOX -->
+        <div class="checkbox-wrapper">
+            <input type="checkbox" id="termsCheckbox">
+            <label for="termsCheckbox">
+                ☠️ I confirm that I own the target system or have explicit permission to test.  
+                I understand that misuse may lead to legal consequences.
+            </label>
+        </div>
+
+        <!-- CONTROL BUTTONS -->
+        <div class="button-group">
+            <button id="startBtn" onclick="start()" disabled>▶ Start Attack</button>
+            <button id="stopBtn" onclick="stop()" disabled>⏹ Halt</button>
+        </div>
+
+        <!-- REAL‑TIME STATS -->
+        <div class="stats">
+            <div>Attempts: <span id="attempts">0</span></div>
+            <div>Current PIN: <span id="current">-</span></div>
+            <div>Elapsed: <span id="elapsed">0</span> s</div>
+            <div>Speed: <span id="speed">0</span> /s</div>
+        </div>
+
+        <!-- LOG TERMINAL -->
+        <div class="log-container">
+            <div class="log-header">📟 CONSOLE OUTPUT</div>
+            <div id="log"></div>
+        </div>
+        <div class="footer-note">
+            ⚙️ BruteBox · <a href="#" target="_blank">GitHub</a> · use at your own risk
+        </div>
     </div>
 
     <script>
@@ -40,6 +294,12 @@
         const logDiv = document.getElementById('log');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const termsCheckbox = document.getElementById('termsCheckbox');
+
+        // ---- enable/disable start based on checkbox ----
+        termsCheckbox.addEventListener('change', function() {
+            startBtn.disabled = !this.checked;
+        });
 
         function log(message, isHtml = false) {
             const entry = document.createElement('div');
@@ -53,7 +313,7 @@
         }
 
         socket.on('connect', () => {
-            log('✅ Connected to BruteBox server');
+            log('✅ [SYSTEM] Connected to BruteBox server');
         });
 
         socket.on('log', (data) => {
@@ -75,14 +335,14 @@
         });
 
         socket.on('fail', (data) => {
-            log(`❌ <span class="fail">MPIN not found</span>`, true);
+            log(`❌ <span class="fail">MPIN not found in range 0000-9999</span>`, true);
             log(`Attempts: ${data.attempts} | Time: ${data.elapsed}s`, true);
             startBtn.disabled = false;
             stopBtn.disabled = true;
         });
 
         socket.on('error', (data) => {
-            log(`⚠️ Error: ${data.message}`);
+            log(`⚠️ ERROR: ${data.message}`);
             startBtn.disabled = false;
             stopBtn.disabled = true;
         });
@@ -91,12 +351,17 @@
             const url = document.getElementById('url').value.trim();
             const username = document.getElementById('username').value.trim();
             if (!url || !username) {
-                alert('Please enter both URL and username');
+                alert('URL and username are required.');
                 return;
             }
-            // Clear previous log
+            // Clear log and stats
             logDiv.innerHTML = '';
-            log('🚀 Starting brute force with BruteBox...');
+            document.getElementById('attempts').textContent = '0';
+            document.getElementById('current').textContent = '-';
+            document.getElementById('elapsed').textContent = '0';
+            document.getElementById('speed').textContent = '0';
+
+            log('🚀 [START] BruteBox engaged...');
             socket.emit('start_bruteforce', { url, username });
             startBtn.disabled = true;
             stopBtn.disabled = false;
@@ -106,8 +371,11 @@
             socket.emit('stop_bruteforce');
             startBtn.disabled = false;
             stopBtn.disabled = true;
-            log('⏸ Stopping...');
+            log('⏸ [HALT] Attack stopped by user.');
         }
+
+        // Additional UI polish: disable stop initially
+        stopBtn.disabled = true;
     </script>
 </body>
 </html>
