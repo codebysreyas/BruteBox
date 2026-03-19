@@ -3,4 +3,5 @@ Flask-SocketIO
 requests
 beautifulsoup4
 python-socketio
-eventlet  # optional but recommended for production
+eventlet
+gunicorn
