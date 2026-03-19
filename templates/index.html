@@ -13,6 +13,17 @@
             align-items: center;
             justify-content: center;
             padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        canvas#matrix {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            opacity: 0.13;
+            pointer-events: none;
         }
 
         .container {
@@ -24,6 +35,8 @@
             padding: 30px;
             box-shadow: 0 0 30px #1f3a1f;
             color: #a5d6a5;
+            position: relative;
+            z-index: 1;
         }
 
         h1 {
@@ -32,16 +45,18 @@
             text-shadow: 0 0 10px #00ff00;
             font-size: 2.5rem;
             margin-bottom: 10px;
-            letter-spacing: 2px;
+            letter-spacing: 4px;
         }
 
         .subtitle {
             text-align: center;
             color: #7aba7a;
             margin-bottom: 30px;
-            font-size: 1.2rem;
+            font-size: 1rem;
             border-bottom: 1px dashed #1f3a1f;
             padding-bottom: 15px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
         }
 
         .warning {
@@ -49,7 +64,7 @@
             border-left: 5px solid #00ff00;
             padding: 15px;
             margin-bottom: 25px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             border-radius: 0 8px 8px 0;
             color: #bada55;
         }
@@ -65,25 +80,44 @@
             font-weight: bold;
             text-transform: uppercase;
             letter-spacing: 1px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
 
-        input[type="url"], input[type="text"] {
+        input[type="url"], input[type="text"], textarea {
             width: 100%;
             background: #1a1f1a;
             border: 2px solid #2a4a2a;
             border-radius: 6px;
-            padding: 14px 16px;
+            padding: 12px 16px;
             color: #00ff00;
-            font-size: 1rem;
+            font-size: 0.95rem;
             outline: none;
             transition: all 0.2s ease;
+            font-family: 'Courier New', Courier, monospace;
         }
 
-        input[type="url"]:focus, input[type="text"]:focus {
+        textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+
+        input[type="url"]:focus, input[type="text"]:focus, textarea:focus {
             border-color: #00ff00;
-            box-shadow: 0 0 15px #2a6f2a;
+            box-shadow: 0 0 12px #2a6f2a;
         }
+
+        .wordlist-toggle {
+            color: #7aba7a;
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            display: inline-block;
+            border-bottom: 1px dashed #3a6a3a;
+        }
+
+        .wordlist-toggle:hover { color: #00ff00; }
+
+        .wordlist-section { display: none; margin-bottom: 20px; }
+        .wordlist-section.open { display: block; }
 
         .checkbox-wrapper {
             margin: 25px 0;
@@ -97,7 +131,7 @@
         }
 
         .checkbox-wrapper input[type="checkbox"] {
-            width: 22px; height: 22px;
+            width: 20px; height: 20px;
             accent-color: #00ff00;
             transform: translateY(2px);
             cursor: pointer; flex-shrink: 0;
@@ -105,35 +139,43 @@
 
         .checkbox-wrapper label {
             margin: 0; color: #bada55;
-            font-size: 0.95rem; line-height: 1.5;
+            font-size: 0.9rem; line-height: 1.5;
             text-transform: none; letter-spacing: normal; cursor: pointer;
         }
 
-        .button-group { display: flex; gap: 15px; flex-wrap: wrap; margin: 30px 0 20px; }
+        .button-group { display: flex; gap: 12px; flex-wrap: wrap; margin: 25px 0 20px; }
 
         button {
-            flex: 1 1 200px;
+            flex: 1 1 160px;
             background: #1f3a1f;
             border: 2px solid #2a6f2a;
             color: #00ff00;
-            font-size: 1.3rem;
+            font-size: 1.1rem;
             font-weight: bold;
-            padding: 16px 10px;
+            padding: 14px 10px;
             border-radius: 8px;
             cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 2px;
             transition: all 0.2s;
-            box-shadow: 0 0 10px #1f3a1f;
+            box-shadow: 0 0 8px #1f3a1f;
+            font-family: 'Courier New', Courier, monospace;
         }
 
         button:hover:not(:disabled) {
             background: #2a5a2a; border-color: #00ff00;
-            box-shadow: 0 0 20px #00ff00; transform: scale(1.02);
+            box-shadow: 0 0 18px #00ff00; transform: scale(1.02);
         }
 
-        button:disabled { opacity: 0.5; cursor: not-allowed; border-color: #3a4a3a; color: #6a8a6a; box-shadow: none; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; border-color: #3a4a3a; color: #6a8a6a; box-shadow: none; }
 
+        button.pause-btn { border-color: #ffaa00; color: #ffaa00; }
+        button.pause-btn:hover:not(:disabled) { box-shadow: 0 0 18px #ffaa00; border-color: #ffaa00; background: #2a2000; }
+
+        button.export-btn { border-color: #00ccff; color: #00ccff; flex: 0 0 auto; }
+        button.export-btn:hover:not(:disabled) { box-shadow: 0 0 18px #00ccff; background: #001a2a; }
+
+        /* STATS */
         .stats {
             background: #0f130f;
             border: 1px solid #1f3a1f;
@@ -143,8 +185,18 @@
             display: flex;
             flex-wrap: wrap;
             justify-content: space-between;
-            font-size: 1rem;
+            font-size: 0.95rem;
             color: #7aba7a;
+            transition: box-shadow 0.4s;
+        }
+
+        .stats.running {
+            animation: statsPulse 2s infinite;
+        }
+
+        @keyframes statsPulse {
+            0%, 100% { box-shadow: 0 0 6px #1f3a1f; border-color: #1f3a1f; }
+            50%       { box-shadow: 0 0 18px #00ff0066; border-color: #00ff00; }
         }
 
         .stats span {
@@ -153,7 +205,7 @@
             border-radius: 20px; border: 1px solid #2a4a2a; margin-left: 8px;
         }
 
-        /* LOG TERMINAL */
+        /* LOG */
         .log-container {
             background: #0f130f;
             border: 2px solid #1f3a1f;
@@ -164,51 +216,59 @@
 
         .log-header {
             background: #1f2a1f;
-            padding: 12px 20px;
+            padding: 10px 20px;
             color: #7aba7a;
             font-weight: bold;
             border-bottom: 1px solid #2a4a2a;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 2px;
+            font-size: 0.85rem;
             display: flex;
             align-items: center;
             gap: 10px;
         }
 
-        .log-header .blink {
-            width: 10px; height: 10px;
-            background: #00ff00;
+        .led {
+            width: 9px; height: 9px;
+            background: #3a6a3a;
             border-radius: 50%;
-            animation: blink 1s infinite;
+            transition: background 0.3s;
         }
 
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        .led.active { background: #00ff00; animation: ledBlink 1s infinite; }
+        .led.paused { background: #ffaa00; animation: ledBlink 0.5s infinite; }
+        @keyframes ledBlink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
         #log {
             background: #0a0e0a;
             padding: 20px;
-            height: 320px;
+            height: 340px;
             overflow-y: auto;
-            font-size: 0.92rem;
-            line-height: 1.7;
+            font-size: 0.88rem;
+            line-height: 1.75;
             scroll-behavior: smooth;
         }
 
-        #log div { padding: 2px 0; border-bottom: 1px dotted #111a11; }
+        #log div { padding: 1px 0; border-bottom: 1px dotted #0f180f; }
 
-        .log-time { color: #3a6a3a; margin-right: 6px; }
-        .log-info { color: #00ccff; }
-        .log-warn { color: #ffaa00; }
-        .log-scan { color: #bada55; }
-        .log-success-line { color: #00ff00; font-weight: bold; text-shadow: 0 0 6px #00ff00; }
-        .log-fail-line { color: #ff5555; font-weight: bold; }
+        .log-time  { color: #2a5a2a; margin-right: 8px; user-select: none; }
+        .log-info  { color: #00ccff; }
+        .log-warn  { color: #ffaa00; }
+        .log-scan  { color: #bada55; }
+        .log-sys   { color: #3a6a3a; font-style: italic; }
+        .log-success-line { color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00; }
+        .log-fail-line    { color: #ff5555; font-weight: bold; }
 
-        /* RESULT CARDS */
-        .result-section {
-            margin-top: 25px;
-            display: none;
+        .log-cursor {
+            display: inline-block;
+            color: #00ff00;
+            animation: cursorBlink 0.8s infinite;
+            margin-left: 2px;
         }
+        @keyframes cursorBlink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
 
+        /* RESULT SECTION */
+        .result-section { margin-top: 25px; display: none; }
         .result-section.visible { display: block; }
 
         .result-card {
@@ -221,7 +281,7 @@
 
         .result-card h3 {
             color: #7aba7a;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 2px;
             margin-bottom: 14px;
@@ -229,39 +289,38 @@
             padding-bottom: 8px;
         }
 
-        /* SUCCESS BANNER */
+        /* BANNERS */
         .success-banner {
             text-align: center;
-            padding: 20px;
+            padding: 24px;
             background: #0a1a0a;
             border: 2px solid #00ff00;
             border-radius: 10px;
             margin-bottom: 16px;
-            box-shadow: 0 0 20px #00ff0033;
+            box-shadow: 0 0 25px #00ff0033;
             display: none;
         }
 
         .success-banner.visible { display: block; }
 
-        .success-banner .breach-label {
+        .breach-label {
             color: #00ff00;
-            font-size: 1.8rem;
+            font-size: 1.4rem;
             font-weight: bold;
-            text-shadow: 0 0 15px #00ff00;
-            letter-spacing: 4px;
+            text-shadow: 0 0 12px #00ff00;
+            letter-spacing: 6px;
         }
 
-        .success-banner .found-pin {
-            font-size: 3rem;
+        .found-pin {
+            font-size: 3.5rem;
             color: #00ff00;
-            text-shadow: 0 0 20px #00ff00;
-            letter-spacing: 8px;
-            margin: 10px 0;
+            text-shadow: 0 0 25px #00ff00;
+            letter-spacing: 12px;
+            margin: 12px 0;
         }
 
-        .success-banner .meta { color: #7aba7a; font-size: 0.9rem; }
+        .banner-meta { color: #7aba7a; font-size: 0.88rem; letter-spacing: 1px; }
 
-        /* FAIL BANNER */
         .fail-banner {
             text-align: center;
             padding: 20px;
@@ -273,53 +332,49 @@
         }
 
         .fail-banner.visible { display: block; }
-
-        .fail-banner .fail-label {
-            color: #ff5555;
-            font-size: 1.5rem;
-            font-weight: bold;
-            letter-spacing: 3px;
-        }
-
-        .fail-banner .fail-meta { color: #aa7777; font-size: 0.9rem; margin-top: 8px; }
+        .fail-label { color: #ff5555; font-size: 1.3rem; font-weight: bold; letter-spacing: 4px; }
+        .fail-meta  { color: #aa7777; font-size: 0.88rem; margin-top: 8px; }
 
         /* CHECKLIST */
         .checklist { list-style: none; padding: 0; }
         .checklist li {
-            padding: 8px 0;
-            color: #ffaa00;
+            padding: 7px 0; color: #ffaa00;
             border-bottom: 1px dotted #2a2a1a;
-            font-size: 0.92rem;
+            font-size: 0.88rem;
         }
-        .checklist li::before { content: '⚠ '; }
+        .checklist li::before { content: '>> '; color: #ff6600; }
 
         /* SECURITY RATING */
         .sec-rating {
-            font-size: 1.6rem;
+            font-size: 1.5rem;
             font-weight: bold;
-            letter-spacing: 3px;
+            letter-spacing: 4px;
             text-align: center;
             padding: 10px;
             border-radius: 6px;
             margin-bottom: 14px;
         }
 
-        .sec-weak    { color: #ff5555; border: 2px solid #ff5555; text-shadow: 0 0 8px #ff5555; }
-        .sec-moderate{ color: #ffaa00; border: 2px solid #ffaa00; text-shadow: 0 0 8px #ffaa00; }
-        .sec-strong  { color: #00ccff; border: 2px solid #00ccff; text-shadow: 0 0 8px #00ccff; }
-        .sec-fortress{ color: #aa00ff; border: 2px solid #aa00ff; text-shadow: 0 0 8px #aa00ff; }
+        .sec-weak     { color: #ff5555; border: 2px solid #ff5555; text-shadow: 0 0 8px #ff5555; }
+        .sec-moderate { color: #ffaa00; border: 2px solid #ffaa00; text-shadow: 0 0 8px #ffaa00; }
+        .sec-strong   { color: #00ccff; border: 2px solid #00ccff; text-shadow: 0 0 8px #00ccff; }
+        .sec-fortress { color: #aa00ff; border: 2px solid #aa00ff; text-shadow: 0 0 8px #aa00ff; }
 
         .sec-signals { list-style: none; padding: 0; }
-        .sec-signals li { color: #7aba7a; font-size: 0.88rem; padding: 4px 0; border-bottom: 1px dotted #1f3a1f; }
-        .sec-signals li::before { content: '▸ '; color: #00ff00; }
+        .sec-signals li {
+            color: #7aba7a; font-size: 0.86rem;
+            padding: 4px 0; border-bottom: 1px dotted #1f3a1f;
+        }
+        .sec-signals li::before { content: '> '; color: #00ff00; }
 
         /* PIN STRENGTH */
         .pin-strength-badge {
             text-align: center;
-            padding: 12px;
+            padding: 10px;
             border-radius: 6px;
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: bold;
+            letter-spacing: 2px;
             margin-bottom: 12px;
         }
 
@@ -327,152 +382,239 @@
         .pin-weak     { background: #2a1a0a; color: #ffaa00; border: 1px solid #ffaa00; }
         .pin-moderate { background: #0a1a2a; color: #00ccff; border: 1px solid #00ccff; }
 
-        .pin-detail { color: #7aba7a; font-size: 0.88rem; line-height: 1.7; }
+        .pin-detail { color: #7aba7a; font-size: 0.86rem; line-height: 1.9; }
         .pin-detail span { color: #00ff00; }
 
-        .footer-note { text-align: center; margin-top: 20px; color: #3a5a3a; font-size: 0.85rem; }
-        .footer-note a { color: #7aba7a; text-decoration: none; }
-        .footer-note a:hover { color: #00ff00; text-decoration: underline; }
+        /* SHAREABLE REPORT */
+        .report-block {
+            background: #050a05;
+            border: 1px solid #2a4a2a;
+            border-radius: 6px;
+            padding: 16px;
+            font-size: 0.82rem;
+            color: #7aba7a;
+            white-space: pre;
+            overflow-x: auto;
+            line-height: 1.7;
+        }
 
-        #log::-webkit-scrollbar { width: 8px; }
+        .copy-btn {
+            margin-top: 10px;
+            background: #1f2a1f;
+            border: 1px solid #2a6f2a;
+            color: #7aba7a;
+            padding: 8px 18px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Courier New', Courier, monospace;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover { color: #00ff00; border-color: #00ff00; }
+
+        .footer-note { text-align: center; margin-top: 20px; color: #3a5a3a; font-size: 0.82rem; }
+        .footer-note a { color: #7aba7a; text-decoration: none; }
+        .footer-note a:hover { color: #00ff00; }
+
+        #log::-webkit-scrollbar { width: 7px; }
         #log::-webkit-scrollbar-track { background: #1f2a1f; }
         #log::-webkit-scrollbar-thumb { background: #2a6f2a; border-radius: 5px; }
     </style>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
 </head>
 <body>
+
+<canvas id="matrix"></canvas>
+
 <div class="container">
-    <h1>🔓 BRUTEBOX</h1>
-    <div class="subtitle">ethical pin cracker · 4‑digit attack</div>
+    <h1>BRUTEBOX</h1>
+    <div class="subtitle">Authorized PIN Security Tester &nbsp;|&nbsp; 4-Digit Attack Engine</div>
 
     <div class="warning">
-        ⚡ <strong>WARNING:</strong> This tool is for <u>authorized testing only</u>.
+        <strong>WARNING:</strong> This tool is for <u>authorized testing only</u>.
         You must own the target system or have explicit written permission.
         Unauthorised use is illegal and unethical.
         <code>#HackResponsibly</code>
     </div>
 
     <div class="input-group">
-        <label>🎯 Target Login URL</label>
+        <label>Target Login URL</label>
         <input type="url" id="url" placeholder="https://example.com/login" value="">
     </div>
     <div class="input-group">
-        <label>👤 Username</label>
-        <input type="text" id="username" placeholder="username" value="">
+        <label>Username</label>
+        <input type="text" id="username" placeholder="target username" value="">
+    </div>
+
+    <span class="wordlist-toggle" onclick="toggleWordlist()">+ Custom PIN Wordlist</span>
+    <div class="wordlist-section" id="wordlistSection">
+        <div class="input-group">
+            <label>Custom PINs (one per line or comma separated)</label>
+            <textarea id="customPins" placeholder="1234&#10;5678&#10;9012"></textarea>
+        </div>
     </div>
 
     <div class="checkbox-wrapper">
         <input type="checkbox" id="termsCheckbox">
         <label for="termsCheckbox">
-            ☠️ I confirm that I own the target system or have explicit permission to test.
+            I confirm that I own the target system or have explicit permission to test.
             I understand that misuse may lead to legal consequences.
         </label>
     </div>
 
     <div class="button-group">
-        <button id="startBtn" onclick="startAttack()" disabled>▶ Start Attack</button>
-        <button id="stopBtn" onclick="stopAttack()" disabled>⏹ Halt</button>
+        <button id="startBtn" onclick="startAttack()" disabled>[ START ]</button>
+        <button id="pauseBtn" class="pause-btn" onclick="togglePause()" disabled>[ PAUSE ]</button>
+        <button id="stopBtn" onclick="stopAttack()" disabled>[ HALT ]</button>
     </div>
 
-    <div class="stats">
+    <div class="stats" id="statsBar">
         <div>Attempts: <span id="attempts">0</span></div>
-        <div>Current PIN: <span id="current">-</span></div>
-        <div>Elapsed: <span id="elapsed">0</span> s</div>
-        <div>Speed: <span id="speed">0</span> /s</div>
+        <div>Current PIN: <span id="current">---</span></div>
+        <div>Elapsed: <span id="elapsed">0</span>s</div>
+        <div>Speed: <span id="speed">0</span>/s</div>
     </div>
 
     <div class="log-container">
         <div class="log-header">
-            <div class="blink"></div>
-            📟 CONSOLE OUTPUT
+            <div class="led" id="led"></div>
+            CONSOLE OUTPUT
         </div>
         <div id="log"></div>
     </div>
 
     <!-- SUCCESS BANNER -->
     <div class="success-banner" id="successBanner">
-        <div class="breach-label">⚡ ACCESS GRANTED ⚡</div>
+        <div class="breach-label">ACCESS GRANTED</div>
         <div class="found-pin" id="foundPin">----</div>
-        <div class="meta" id="successMeta"></div>
+        <div class="banner-meta" id="successMeta"></div>
     </div>
 
     <!-- FAIL BANNER -->
     <div class="fail-banner" id="failBanner">
-        <div class="fail-label">◼ MPIN NOT FOUND ◼</div>
+        <div class="fail-label">MPIN NOT FOUND</div>
         <div class="fail-meta" id="failMeta"></div>
     </div>
 
     <!-- RESULT SECTION -->
     <div class="result-section" id="resultSection">
 
-        <!-- Checklist (fail only) -->
         <div class="result-card" id="checklistCard" style="display:none">
-            <h3>🔎 Possible Reasons</h3>
+            <h3>Possible Reasons for Failure</h3>
             <ul class="checklist">
-                <li>Verify the <strong>username is correct</strong> — wrong username means MPIN will never match</li>
-                <li>Confirm the <strong>URL is the actual login POST endpoint</strong>, not a redirect or landing page</li>
-                <li>The site may have <strong>brute-force protection</strong> that silently blocked attempts</li>
-                <li>CAPTCHA or 2FA may be <strong>preventing automated logins</strong></li>
-                <li>Account may be <strong>locked or suspended</strong> after failed attempts</li>
+                <li>Verify the username is correct — wrong username means MPIN will never match</li>
+                <li>Confirm the URL is the actual login POST endpoint, not a redirect or landing page</li>
+                <li>The site may have brute-force protection that silently blocked attempts</li>
+                <li>CAPTCHA or 2FA may be preventing automated logins</li>
+                <li>Account may be locked or suspended after repeated failed attempts</li>
             </ul>
         </div>
 
-        <!-- Website Security Rating -->
         <div class="result-card" id="securityCard">
-            <h3>🔒 Website Security Rating</h3>
+            <h3>Website Security Rating</h3>
             <div class="sec-rating" id="secRating">-</div>
             <ul class="sec-signals" id="secSignals"></ul>
         </div>
 
-        <!-- MPIN Strength -->
         <div class="result-card" id="pinStrengthCard">
-            <h3>🔑 MPIN Strength Analysis</h3>
+            <h3>MPIN Strength Analysis</h3>
             <div class="pin-strength-badge" id="pinBadge">-</div>
             <div class="pin-detail" id="pinDetail"></div>
+        </div>
+
+        <div class="result-card" id="reportCard">
+            <h3>Session Report</h3>
+            <div class="report-block" id="reportBlock"></div>
+            <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                <button class="copy-btn" onclick="copyReport()">Copy Report</button>
+                <button class="copy-btn export-btn" id="exportBtn" onclick="exportReport()">Export .txt</button>
+            </div>
         </div>
 
     </div>
 
     <div class="footer-note">
-        ⚙️ BruteBox · <a href="#" target="_blank">GitHub</a> · use at your own risk
+        BruteBox &nbsp;|&nbsp; <a href="#" target="_blank">GitHub</a> &nbsp;|&nbsp; Use at your own risk
     </div>
 </div>
 
 <script>
+    // ─── Matrix Rain ───────────────────────────────────────────────
+    const canvas = document.getElementById('matrix');
+    const ctx = canvas.getContext('2d');
+    let cols, drops;
+
+    function initMatrix() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+        cols  = Math.floor(canvas.width / 16);
+        drops = Array(cols).fill(1);
+    }
+
+    function drawMatrix() {
+        ctx.fillStyle = 'rgba(0,0,0,0.05)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#00ff00';
+        ctx.font = '14px Courier New';
+        for (let i = 0; i < drops.length; i++) {
+            const char = String.fromCharCode(0x30A0 + Math.random() * 96);
+            ctx.fillText(char, i * 16, drops[i] * 16);
+            if (drops[i] * 16 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        }
+    }
+
+    initMatrix();
+    setInterval(drawMatrix, 50);
+    window.addEventListener('resize', initMatrix);
+
+    // ─── App State ─────────────────────────────────────────────────
     const socket = io();
-    const logDiv = document.getElementById('log');
+    const logDiv  = document.getElementById('log');
     const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const termsCheckbox = document.getElementById('termsCheckbox');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const stopBtn  = document.getElementById('stopBtn');
+    const statsBar = document.getElementById('statsBar');
+    const led      = document.getElementById('led');
 
     let attackStartTime = null;
+    let isPaused = false;
+    let reportData = null;
 
-    // Common PIN rankings for strength analysis
-    const commonPinRanks = {
-        '1234': { rank: 1,  label: '#1 most common PIN globally',   strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
-        '1111': { rank: 2,  label: '#2 most common PIN globally',   strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
-        '0000': { rank: 3,  label: '#3 most common PIN globally',   strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
-        '1212': { rank: 4,  label: 'Extremely common PIN',          strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
-        '7777': { rank: 5,  label: 'Very common PIN',               strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
-        '1004': { rank: 6,  label: 'Common PIN',                    strength: 'WEAK',            cls: 'pin-weak'     },
-        '2000': { rank: 7,  label: 'Common PIN',                    strength: 'WEAK',            cls: 'pin-weak'     },
-        '4444': { rank: 8,  label: 'Common repeated-digit PIN',     strength: 'WEAK',            cls: 'pin-weak'     },
-        '2222': { rank: 9,  label: 'Common repeated-digit PIN',     strength: 'WEAK',            cls: 'pin-weak'     },
-        '6969': { rank: 10, label: 'Common pattern PIN',            strength: 'WEAK',            cls: 'pin-weak'     },
-        '9999': { rank: 11, label: 'Common repeated-digit PIN',     strength: 'WEAK',            cls: 'pin-weak'     },
-        '3333': { rank: 12, label: 'Common repeated-digit PIN',     strength: 'WEAK',            cls: 'pin-weak'     },
-        '5555': { rank: 13, label: 'Common repeated-digit PIN',     strength: 'WEAK',            cls: 'pin-weak'     },
-        '8888': { rank: 14, label: 'Common repeated-digit PIN',     strength: 'WEAK',            cls: 'pin-weak'     },
-        '4321': { rank: 15, label: 'Common descending sequence',    strength: 'WEAK',            cls: 'pin-weak'     },
-    };
+    // Fake system noise lines
+    const sysNoiseLines = [
+        '[SYS] memory stable -- heap 42mb',
+        '[SYS] thread pool healthy -- 8 workers',
+        '[SYS] network latency 12ms',
+        '[SYS] socket alive -- heartbeat OK',
+        '[SYS] session gc -- 0 expired',
+        '[SYS] cpu load normal',
+        '[SYS] i/o buffer clear',
+        '[SYS] connection pool replenished',
+        '[SYS] watchdog tick -- no anomalies',
+        '[SYS] entropy source ok',
+    ];
 
-    function getPinStrength(pin) {
-        if (commonPinRanks[pin]) return commonPinRanks[pin];
-        // Check for patterns
-        if (/^(.)\1{3}$/.test(pin)) return { label: 'Repeated-digit pattern', strength: 'WEAK', cls: 'pin-weak' };
-        if (pin === '1230' || pin === '0123' || pin === '2345' || pin === '3456') return { label: 'Sequential pattern', strength: 'WEAK', cls: 'pin-weak' };
-        return { label: 'Non-dictionary PIN — not in top common PINs', strength: 'MODERATE', cls: 'pin-moderate' };
+    let noiseInterval = null;
+
+    function startNoise() {
+        noiseInterval = setInterval(() => {
+            if (!isPaused) {
+                const line = sysNoiseLines[Math.floor(Math.random() * sysNoiseLines.length)];
+                appendLog(line, 'log-sys', false);
+            }
+        }, 4000 + Math.random() * 3000);
     }
+
+    function stopNoise() {
+        if (noiseInterval) { clearInterval(noiseInterval); noiseInterval = null; }
+    }
+
+    // ─── Logging ───────────────────────────────────────────────────
+    let cursorEl = null;
 
     function getTimestamp() {
         if (!attackStartTime) return '[00:00]';
@@ -482,189 +624,325 @@
         return `[${m}:${s}]`;
     }
 
-    function typewriterLog(message, cssClass, delay = 0) {
-        setTimeout(() => {
-            const entry = document.createElement('div');
-            const time = document.createElement('span');
-            time.className = 'log-time';
-            time.textContent = getTimestamp();
-            entry.appendChild(time);
+    function removeCursor() {
+        if (cursorEl) { cursorEl.remove(); cursorEl = null; }
+    }
 
-            const text = document.createElement('span');
-            text.className = cssClass || 'log-info';
-            entry.appendChild(text);
-            logDiv.appendChild(entry);
-            logDiv.scrollTop = logDiv.scrollHeight;
+    function appendLog(message, cssClass, typewrite = true) {
+        removeCursor();
 
+        const entry = document.createElement('div');
+        const time  = document.createElement('span');
+        time.className   = 'log-time';
+        time.textContent = getTimestamp();
+        entry.appendChild(time);
+
+        const text = document.createElement('span');
+        text.className = cssClass;
+        entry.appendChild(text);
+        logDiv.appendChild(entry);
+        logDiv.scrollTop = logDiv.scrollHeight;
+
+        const cursor = document.createElement('span');
+        cursor.className = 'log-cursor';
+        cursor.textContent = '\u2588';
+
+        if (typewrite) {
             let i = 0;
-            const interval = setInterval(() => {
-                text.textContent += message[i];
+            text.appendChild(cursor);
+            cursorEl = cursor;
+            const iv = setInterval(() => {
+                text.insertBefore(document.createTextNode(message[i]), cursor);
                 i++;
                 logDiv.scrollTop = logDiv.scrollHeight;
-                if (i >= message.length) clearInterval(interval);
-            }, 18);
-        }, delay);
-    }
-
-    function logLine(message, type) {
-        const classMap = {
-            info: 'log-info',
-            warn: 'log-warn',
-            scan: 'log-scan',
-            success: 'log-success-line',
-            fail: 'log-fail-line'
-        };
-        typewriterLog(message, classMap[type] || 'log-info');
-    }
-
-    function renderSecurityCard(security) {
-        const ratingEl = document.getElementById('secRating');
-        ratingEl.textContent = security.rating;
-        ratingEl.className = 'sec-rating sec-' + security.color;
-
-        const signalsList = document.getElementById('secSignals');
-        signalsList.innerHTML = '';
-        if (security.signals.length === 0) {
-            const li = document.createElement('li');
-            li.textContent = 'No defensive signals detected during attack';
-            signalsList.appendChild(li);
+                if (i >= message.length) {
+                    clearInterval(iv);
+                }
+            }, 15);
         } else {
-            security.signals.forEach(s => {
-                const li = document.createElement('li');
-                li.textContent = s;
-                signalsList.appendChild(li);
-            });
+            text.textContent = message;
+            text.appendChild(cursor);
+            cursorEl = cursor;
+            logDiv.scrollTop = logDiv.scrollHeight;
         }
     }
 
-    function renderPinStrength(pin) {
-        const info = getPinStrength(pin);
-        const badge = document.getElementById('pinBadge');
-        badge.textContent = `${pin} — ${info.strength}`;
-        badge.className = 'pin-strength-badge ' + info.cls;
+    function logLine(message, type) {
+        const map = { info: 'log-info', warn: 'log-warn', scan: 'log-scan', sys: 'log-sys', success: 'log-success-line', fail: 'log-fail-line' };
+        appendLog(message, map[type] || 'log-info');
+    }
 
-        const detail = document.getElementById('pinDetail');
-        detail.innerHTML = `
-            <span>Classification:</span> ${info.label}<br>
-            <span>Keyspace:</span> 10,000 possible combinations (0000–9999)<br>
-            <span>Entropy:</span> ~13.3 bits — extremely low<br>
-            <span>Crack time (offline, fast hash):</span> &lt; 1 second<br>
-            <span>Crack time (this tool, live):</span> depends on server response speed
-        `;
+    // ─── Security + PIN rendering ──────────────────────────────────
+    const commonPinRanks = {
+        '1234': { rank: 1,  label: '#1 most common PIN globally',  strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
+        '1111': { rank: 2,  label: '#2 most common PIN globally',  strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
+        '0000': { rank: 3,  label: '#3 most common PIN globally',  strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
+        '1212': { rank: 4,  label: 'Extremely common PIN',         strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
+        '7777': { rank: 5,  label: 'Very common PIN',              strength: 'CRITICALLY WEAK', cls: 'pin-critical' },
+        '1004': { rank: 6,  label: 'Common PIN',                   strength: 'WEAK',            cls: 'pin-weak'     },
+        '2000': { rank: 7,  label: 'Common PIN',                   strength: 'WEAK',            cls: 'pin-weak'     },
+        '4444': { rank: 8,  label: 'Repeated-digit PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '2222': { rank: 9,  label: 'Repeated-digit PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '6969': { rank: 10, label: 'Common pattern PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '9999': { rank: 11, label: 'Repeated-digit PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '3333': { rank: 12, label: 'Repeated-digit PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '5555': { rank: 13, label: 'Repeated-digit PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '8888': { rank: 14, label: 'Repeated-digit PIN',           strength: 'WEAK',            cls: 'pin-weak'     },
+        '4321': { rank: 15, label: 'Descending sequence',          strength: 'WEAK',            cls: 'pin-weak'     },
+    };
+
+    function getPinStrength(pin) {
+        if (commonPinRanks[pin]) return commonPinRanks[pin];
+        if (/^(.)\1{3}$/.test(pin)) return { label: 'Repeated-digit pattern', strength: 'WEAK', cls: 'pin-weak' };
+        return { label: 'Non-dictionary PIN', strength: 'MODERATE', cls: 'pin-moderate' };
+    }
+
+    function renderSecurityCard(security) {
+        const el = document.getElementById('secRating');
+        el.textContent = security.rating;
+        el.className   = 'sec-rating sec-' + security.color;
+
+        const list = document.getElementById('secSignals');
+        list.innerHTML = '';
+        const items = security.signals.length ? security.signals : ['No defensive signals detected during attack'];
+        items.forEach(s => {
+            const li = document.createElement('li');
+            li.textContent = s;
+            list.appendChild(li);
+        });
+    }
+
+    function renderPinStrength(pin) {
+        const info  = getPinStrength(pin);
+        const badge = document.getElementById('pinBadge');
+        badge.textContent = `${pin}  --  ${info.strength}`;
+        badge.className   = 'pin-strength-badge ' + info.cls;
+
+        document.getElementById('pinDetail').innerHTML = `
+<span>Classification :</span> ${info.label}
+<span>Keyspace       :</span> 10,000 combinations (0000-9999)
+<span>Entropy        :</span> ~13.3 bits -- extremely low
+<span>Offline crack  :</span> &lt; 1 second on modern hardware
+<span>Live crack     :</span> depends on server response speed`;
     }
 
     function renderPinStrengthGeneric(attempts, elapsed) {
         const badge = document.getElementById('pinBadge');
-        badge.textContent = `4-DIGIT MPIN — INHERENTLY WEAK`;
-        badge.className = 'pin-strength-badge pin-weak';
+        badge.textContent = '4-DIGIT MPIN  --  INHERENTLY WEAK';
+        badge.className   = 'pin-strength-badge pin-weak';
 
-        const detail = document.getElementById('pinDetail');
-        detail.innerHTML = `
-            <span>Keyspace:</span> 10,000 possible combinations (0000–9999)<br>
-            <span>Entropy:</span> ~13.3 bits — extremely low<br>
-            <span>This attack tested:</span> ${attempts} PINs in ${elapsed}s<br>
-            <span>Avg time per PIN:</span> ${(elapsed / attempts).toFixed(3)}s<br>
-            <span>Full keyspace at this speed:</span> ~${Math.round(10000 * elapsed / attempts)}s
-        `;
+        document.getElementById('pinDetail').innerHTML = `
+<span>Keyspace       :</span> 10,000 combinations (0000-9999)
+<span>Entropy        :</span> ~13.3 bits -- extremely low
+<span>Tested         :</span> ${attempts} PINs in ${elapsed}s
+<span>Avg per PIN    :</span> ${(elapsed / attempts).toFixed(3)}s
+<span>Full keyspace  :</span> ~${Math.round(10000 * elapsed / attempts)}s at this speed`;
     }
 
-    termsCheckbox.addEventListener('change', function () {
-        startBtn.disabled = !this.checked;
-    });
+    function buildReport(result, mpin, attempts, elapsed, security, pinInfo) {
+        const now = new Date().toISOString();
+        const url = document.getElementById('url').value.trim();
+        const usr = document.getElementById('username').value.trim();
+        const sigs = security.signals.length ? security.signals.join('\n  ') : 'None detected';
 
+        return `========================================
+  BRUTEBOX SESSION REPORT
+  Generated : ${now}
+========================================
+  Target URL  : ${url}
+  Username    : ${usr}
+  Result      : ${result}
+  MPIN Found  : ${mpin || 'N/A'}
+  Attempts    : ${attempts}
+  Elapsed     : ${elapsed}s
+----------------------------------------
+  WEBSITE SECURITY
+  Rating      : ${security.rating}
+  Score       : ${security.score}/7
+  Signals     :
+  ${sigs}
+----------------------------------------
+  MPIN STRENGTH
+  PIN         : ${mpin || 'N/A'}
+  Verdict     : ${pinInfo}
+  Keyspace    : 10,000 (0000-9999)
+  Entropy     : ~13.3 bits
+========================================
+  BruteBox -- Authorized Testing Only
+========================================`;
+    }
+
+    // ─── Socket Events ─────────────────────────────────────────────
     socket.on('connect', () => {
-        logLine('[SYSTEM] Connected to BruteBox server — ready', 'info');
+        logLine('[SYSTEM] Connected to BruteBox server -- ready', 'info');
     });
 
     socket.on('log', (data) => {
-        const typeMap = { info: 'info', warn: 'warn', scan: 'scan' };
-        logLine(data.message, typeMap[data.type] || 'info');
+        const map = { info: 'info', warn: 'warn', scan: 'scan', sys: 'sys' };
+        logLine(data.message, map[data.type] || 'info');
     });
 
     socket.on('progress', (data) => {
         document.getElementById('attempts').textContent = data.attempts;
-        document.getElementById('current').textContent = data.current;
-        document.getElementById('elapsed').textContent = data.elapsed;
-        document.getElementById('speed').textContent = data.speed;
+        document.getElementById('current').textContent  = data.current;
+        document.getElementById('elapsed').textContent  = data.elapsed;
+        document.getElementById('speed').textContent    = data.speed;
+    });
+
+    socket.on('paused', () => {
+        led.className = 'led paused';
+        statsBar.classList.remove('running');
+    });
+
+    socket.on('resumed', () => {
+        led.className = 'led active';
+        statsBar.classList.add('running');
     });
 
     socket.on('success', (data) => {
-        logLine(`[BREACH] MPIN FOUND: ${data.mpin} — ${data.attempts} attempts in ${data.elapsed}s`, 'success');
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        stopNoise();
+        removeCursor();
+        logLine(`[BREACH] MPIN FOUND: ${data.mpin}  --  ${data.attempts} attempts  ${data.elapsed}s`, 'success');
+        endAttackUI();
 
-        // Show success banner
-        document.getElementById('foundPin').textContent = data.mpin;
-        document.getElementById('successMeta').textContent = `${data.attempts} attempts · ${data.elapsed}s elapsed`;
+        document.getElementById('foundPin').textContent   = data.mpin;
+        document.getElementById('successMeta').textContent = `${data.attempts} attempts  |  ${data.elapsed}s elapsed`;
         document.getElementById('successBanner').classList.add('visible');
         document.getElementById('failBanner').classList.remove('visible');
-
-        // Show result section
         document.getElementById('resultSection').classList.add('visible');
         document.getElementById('checklistCard').style.display = 'none';
 
         renderSecurityCard(data.security);
         renderPinStrength(data.mpin);
+
+        const pinInfo = getPinStrength(data.mpin);
+        reportData = buildReport('SUCCESS', data.mpin, data.attempts, data.elapsed, data.security, `${pinInfo.strength} -- ${pinInfo.label}`);
+        document.getElementById('reportBlock').textContent = reportData;
     });
 
     socket.on('fail', (data) => {
-        logLine(`[FAIL] Exhausted 0000–9999 — MPIN not found`, 'fail');
-        logLine(`[STAT] ${data.attempts} attempts · ${data.elapsed}s elapsed`, 'warn');
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        stopNoise();
+        removeCursor();
+        logLine(`[FAIL] Exhausted 0000-9999 -- MPIN not found`, 'fail');
+        logLine(`[STAT] ${data.attempts} attempts  |  ${data.elapsed}s elapsed`, 'warn');
+        endAttackUI();
 
-        // Show fail banner
-        document.getElementById('failMeta').textContent = `${data.attempts} attempts · ${data.elapsed}s elapsed`;
+        document.getElementById('failMeta').textContent = `${data.attempts} attempts  |  ${data.elapsed}s elapsed`;
         document.getElementById('failBanner').classList.add('visible');
         document.getElementById('successBanner').classList.remove('visible');
-
-        // Show result section with checklist
         document.getElementById('resultSection').classList.add('visible');
         document.getElementById('checklistCard').style.display = 'block';
 
         renderSecurityCard(data.security);
         renderPinStrengthGeneric(data.attempts, data.elapsed);
+
+        reportData = buildReport('FAIL', null, data.attempts, data.elapsed, data.security, 'WEAK -- 4-digit keyspace exhausted');
+        document.getElementById('reportBlock').textContent = reportData;
     });
 
     socket.on('error', (data) => {
+        stopNoise();
         logLine(`[ERROR] ${data.message}`, 'warn');
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        endAttackUI();
     });
 
-    function startAttack() {
-        const url = document.getElementById('url').value.trim();
-        const username = document.getElementById('username').value.trim();
-        if (!url || !username) {
-            alert('URL and username are required.');
-            return;
-        }
+    // ─── Controls ──────────────────────────────────────────────────
+    document.getElementById('termsCheckbox').addEventListener('change', function () {
+        startBtn.disabled = !this.checked;
+    });
 
-        // Reset UI
+    function toggleWordlist() {
+        const sec = document.getElementById('wordlistSection');
+        const tog = document.querySelector('.wordlist-toggle');
+        sec.classList.toggle('open');
+        tog.textContent = sec.classList.contains('open') ? '- Custom PIN Wordlist' : '+ Custom PIN Wordlist';
+    }
+
+    function endAttackUI() {
+        startBtn.disabled = !document.getElementById('termsCheckbox').checked;
+        pauseBtn.disabled = true;
+        stopBtn.disabled  = true;
+        statsBar.classList.remove('running');
+        led.className = 'led';
+        isPaused = false;
+        pauseBtn.textContent = '[ PAUSE ]';
+    }
+
+    function startAttack() {
+        const url      = document.getElementById('url').value.trim();
+        const username = document.getElementById('username').value.trim();
+        if (!url || !username) { alert('URL and username are required.'); return; }
+
         logDiv.innerHTML = '';
         document.getElementById('attempts').textContent = '0';
-        document.getElementById('current').textContent = '-';
-        document.getElementById('elapsed').textContent = '0';
-        document.getElementById('speed').textContent = '0';
+        document.getElementById('current').textContent  = '---';
+        document.getElementById('elapsed').textContent  = '0';
+        document.getElementById('speed').textContent    = '0';
         document.getElementById('successBanner').classList.remove('visible');
         document.getElementById('failBanner').classList.remove('visible');
         document.getElementById('resultSection').classList.remove('visible');
+        reportData = null;
 
         attackStartTime = Date.now();
-        logLine('[INIT] BruteBox engaged — initiating attack sequence', 'info');
-        socket.emit('start_bruteforce', { url, username });
+        isPaused = false;
+        pauseBtn.textContent = '[ PAUSE ]';
+
+        statsBar.classList.add('running');
+        led.className = 'led active';
+
         startBtn.disabled = true;
-        stopBtn.disabled = false;
+        pauseBtn.disabled = false;
+        stopBtn.disabled  = false;
+
+        startNoise();
+
+        const customPins = document.getElementById('customPins').value.trim();
+        logLine('[INIT] BruteBox engaged -- initiating attack sequence', 'info');
+        socket.emit('start_bruteforce', { url, username, custom_pins: customPins });
+    }
+
+    function togglePause() {
+        if (!isPaused) {
+            isPaused = true;
+            pauseBtn.textContent = '[ RESUME ]';
+            socket.emit('pause_bruteforce');
+        } else {
+            isPaused = false;
+            pauseBtn.textContent = '[ PAUSE ]';
+            socket.emit('resume_bruteforce');
+        }
     }
 
     function stopAttack() {
+        stopNoise();
+        removeCursor();
         socket.emit('stop_bruteforce');
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        logLine('[HALT] Operator abort — attack terminated', 'warn');
+        logLine('[HALT] Operator abort -- attack terminated', 'warn');
+        endAttackUI();
     }
 
-    stopBtn.disabled = true;
+    function copyReport() {
+        if (!reportData) return;
+        navigator.clipboard.writeText(reportData).then(() => {
+            const btn = document.querySelector('.copy-btn');
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = orig, 1500);
+        });
+    }
+
+    function exportReport() {
+        if (!reportData) return;
+        const blob = new Blob([reportData], { type: 'text/plain' });
+        const a    = document.createElement('a');
+        a.href     = URL.createObjectURL(blob);
+        a.download = `brutebox-report-${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+
+    stopBtn.disabled  = true;
+    pauseBtn.disabled = true;
 </script>
 </body>
 </html>
