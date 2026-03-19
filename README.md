@@ -17,7 +17,6 @@ A web-based 4-digit MPIN brute force testing tool built for authorized penetrati
 - MPIN strength analysis with common PIN classification
 - Session report — copyable and exportable as `.txt`
 - Matrix rain background, pulsing stats bar, LED status indicator
-- No emojis. No fluff.
 
 ---
 
@@ -47,7 +46,7 @@ A web-based 4-digit MPIN brute force testing tool built for authorized penetrati
 
 ## Installation
 ```bash
-git clone https://github.com/yourusername/BruteBox.git
+git clone https://github.com/codebysreyas/BruteBox.git
 cd BruteBox
 pip install -r requirements.txt
 python app.py
@@ -78,7 +77,7 @@ gunicorn
 4. Accept the authorization disclaimer
 5. Click `[ START ]`
 
-The console will display real-time progress. On completion, a security rating and MPIN strength analysis are shown, along with a copyable session report.
+The console displays real-time progress. On completion, a security rating and MPIN strength analysis are shown alongside a copyable session report.
 
 ---
 
@@ -118,10 +117,10 @@ BruteBox/
 
 ## Disclaimer
 
-This tool is intended **strictly for authorized security testing**. You must own the target system or have explicit written permission before running any attack. Unauthorized use against systems you do not own is illegal under the IT Act 2000 (India) and equivalent laws in other jurisdictions. The author assumes no liability for misuse.
+This tool is intended **strictly for authorized security testing**. You must own the target system or have explicit written permission before running any attack. Unauthorized use against systems you do not own is illegal under applicable computer crime and cybersecurity laws in your jurisdiction. The author assumes no liability for misuse.
 
 ---
 
 ## Author
 
-Built by [Sreyas](https://github.com/yourusername) as part of a security tooling portfolio.
+Built by [Sreyas](https://github.com/codebysreyas) · [LinkedIn](https://linkedin.com/in/sreyasvm)
