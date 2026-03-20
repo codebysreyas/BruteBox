@@ -1,5 +1,4 @@
 # BruteBox
-
 A web-based 4-digit MPIN brute force testing tool built for authorized penetration testing and security research. BruteBox automates credential testing against login endpoints that use CSRF-protected POST forms, with real-time progress reporting via WebSocket.
 
 **Live Demo:** https://brutebox.onrender.com/
@@ -8,15 +7,15 @@ A web-based 4-digit MPIN brute force testing tool built for authorized penetrati
 
 ## Features
 
-- Threaded attack engine — 8 concurrent workers with session pooling
-- CSRF token harvesting and automatic session management
-- Three-phase attack: custom wordlist -> common PIN dictionary -> full 0000-9999 keyspace
+- Fresh session per PIN attempt — guaranteed CSRF token validity on every request
+- Three-phase attack: custom wordlist → common PIN dictionary → full 0000-9999 keyspace
 - Pause and resume support — attack can be suspended without losing progress
-- Real-time console output via Socket.IO with typewriter effect
+- Real-time console output via Socket.IO with typewriter effect and timestamps
 - Website security rating based on observed defensive signals (rate limiting, IP blocking, CSRF rotation, response delay)
 - MPIN strength analysis with common PIN classification
 - Session report — copyable and exportable as `.txt`
 - Matrix rain background, pulsing stats bar, LED status indicator
+- Fake system noise lines injected during scan for terminal authenticity
 
 ---
 
@@ -25,8 +24,8 @@ A web-based 4-digit MPIN brute force testing tool built for authorized penetrati
 | Layer | Technology |
 |---|---|
 | Backend | Python, Flask, Flask-SocketIO |
-| Concurrency | `threading`, `concurrent.futures.ThreadPoolExecutor` |
-| HTTP | `requests`, `BeautifulSoup4` |
+| Concurrency | threading |
+| HTTP | requests, BeautifulSoup4 |
 | Frontend | HTML, CSS, Vanilla JS |
 | Realtime | Socket.IO |
 | Deployment | Gunicorn + Eventlet, Render |
@@ -35,12 +34,11 @@ A web-based 4-digit MPIN brute force testing tool built for authorized penetrati
 
 ## How It Works
 
-1. A session pool of 10 HTTP sessions is created, each fetching a fresh CSRF token from the target login page
+1. BruteBox fetches a fresh HTTP session with a valid CSRF token for every PIN attempt — no stale tokens, no skipped PINs
 2. Custom PINs (if provided) are tested first
-3. 40 common PINs are tested next using the dictionary phase
-4. Remaining PINs (0000-9999) are tested in chunks of 100 using 8 threads
-5. Any timed-out PINs are collected and retried at the end
-6. Throughout the attack, defensive signals are tracked and used to generate a security rating on completion
+3. 40 most common PINs are tested next using the dictionary phase
+4. Remaining PINs (0000-9999) are tested sequentially across the full keyspace
+5. Defensive signals are tracked throughout the attack and used to generate a security rating on completion
 
 ---
 
@@ -77,7 +75,7 @@ gunicorn
 4. Accept the authorization disclaimer
 5. Click `[ START ]`
 
-The console displays real-time progress. On completion, a security rating and MPIN strength analysis are shown alongside a copyable session report.
+The console displays real-time progress with timestamps and color-coded log levels. On completion, a security rating and MPIN strength analysis are shown alongside a copyable session report.
 
 ---
 
@@ -103,11 +101,29 @@ BruteBox observes the following signals during the attack and generates a rating
 
 ---
 
+## Console Output
+
+BruteBox uses a military-style console with color-coded log levels:
+
+| Tag | Color | Meaning |
+|---|---|---|
+| [INIT] | Cyan | Initialization and startup |
+| [SCAN] | Yellow-green | Active scan progress |
+| [CSRF] | Yellow | CSRF token events |
+| [RATE] | Yellow | Rate limit detected |
+| [BLOCK] | Yellow | Blocking detected |
+| [BREACH] | Green | PIN found |
+| [HALT] | Yellow | Attack stopped |
+| [SYS] | Dark green | System noise |
+
+---
+
 ## Project Structure
 ```
 BruteBox/
 ├── app.py                  # Flask backend, attack engine, Socket.IO handlers
 ├── requirements.txt        # Python dependencies
+├── Procfile                # Gunicorn startup command for deployment
 ├── templates/
 │   └── index.html          # Frontend UI
 └── README.md
