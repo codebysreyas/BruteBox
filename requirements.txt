@@ -3,5 +3,6 @@ Flask-SocketIO
 requests
 beautifulsoup4
 python-socketio
-eventlet
+gevent
+gevent-websocket
 gunicorn
